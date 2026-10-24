@@ -1,0 +1,11 @@
+[package]
+name = "demo:go-import-rust"
+version = "0.1.0"
+
+[metadata]
+description = "Ordinary Go importing a packaged Rust implementation"
+license = "MIT"
+
+[build]
+compiler = "go"
+project = "go"

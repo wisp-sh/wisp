@@ -1,0 +1,4 @@
+# Standard wasm-pkg-tools metadata syntax. No wisp-specific fields here.
+[metadata]
+description = "jq 1.8.1 compiled to a WebAssembly Component"
+source = "https://github.com/jqlang/jq/tree/jq-1.8.1"

@@ -1,0 +1,4 @@
+package demo:a@1.0.0;
+interface types { record payload { value: u32 } }
+interface api { use types.{payload}; echo: func(value: payload) -> payload; }
+world provider { export types; export api; }

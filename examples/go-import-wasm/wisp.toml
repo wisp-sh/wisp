@@ -1,0 +1,11 @@
+[package]
+name = "demo:go-import-wasm"
+version = "0.1.0"
+
+[metadata]
+description = "Ordinary Go importing a published C++ package"
+license = "MIT"
+
+[build]
+compiler = "go"
+project = "go"

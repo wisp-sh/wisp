@@ -1,0 +1,11 @@
+[package]
+name = "demo:cpp-arithmetic"
+version = "0.3.0"
+
+[metadata]
+description = "Ordinary C++ arithmetic compiled and packaged by Wisp"
+license = "MIT"
+
+[build]
+compiler = "clang"
+sources = ["arithmetic.cpp"]

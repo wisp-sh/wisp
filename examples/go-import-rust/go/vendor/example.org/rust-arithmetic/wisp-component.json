@@ -1,0 +1,19 @@
+{
+  "component": {
+    "path": "component.wasm",
+    "sha256": "e4814cd0e8fc996faa70b9e15330dc3755f2da45cde328fe770b1886a2f31829"
+  },
+  "kind": "wisp-go-component-library",
+  "module": "example.org/rust-arithmetic",
+  "platform": "native_wasm",
+  "runtime": {
+    "component": {
+      "path": "component.wasm",
+      "sha256": "e4814cd0e8fc996faa70b9e15330dc3755f2da45cde328fe770b1886a2f31829"
+    },
+    "module": "github.com/wago-org/wago",
+    "version": "v0.1.0-beta.11"
+  },
+  "schema": 1,
+  "version": "0.1.0"
+}

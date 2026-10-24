@@ -1,0 +1,37 @@
+[
+  {
+    "repo": "WebAssembly/wasi-sdk",
+    "tag": "wasi-sdk-31",
+    "asset": "wasi-sdk-31.0-x86_64-linux.tar.gz",
+    "url": "https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-31/wasi-sdk-31.0-x86_64-linux.tar.gz",
+    "sha256": "e1cdf3f851ba090353c255627b1da997db57e0efc27631c5da55089c8bfb6a5d"
+  },
+  {
+    "repo": "bytecodealliance/wit-bindgen",
+    "tag": "v0.61.0",
+    "asset": "wit-bindgen-0.61.0-x86_64-linux.tar.gz",
+    "url": "https://github.com/bytecodealliance/wit-bindgen/releases/download/v0.61.0/wit-bindgen-0.61.0-x86_64-linux.tar.gz",
+    "sha256": "51ad45fac01d2e412d06a0ca290e26d449fa06a62904a3a9878da180becc08a1"
+  },
+  {
+    "repo": "bytecodealliance/wasm-tools",
+    "tag": "v1.245.0",
+    "asset": "wasm-tools-1.245.0-x86_64-linux.tar.gz",
+    "url": "https://github.com/bytecodealliance/wasm-tools/releases/download/v1.245.0/wasm-tools-1.245.0-x86_64-linux.tar.gz",
+    "sha256": "811edaad5ca41b95fe747826a033bbf9c4bb636ad0e51ece0b69631dfd8b8f50"
+  },
+  {
+    "repo": "jqlang/jq",
+    "tag": "jq-1.8.1",
+    "asset": "jq-1.8.1.tar.gz",
+    "url": "https://github.com/jqlang/jq/releases/download/jq-1.8.1/jq-1.8.1.tar.gz",
+    "sha256": "2be64e7129cecb11d5906290eba10af694fb9e3e7f9fc208a311dc33ca837eb0"
+  },
+  {
+    "repo": "bytecodealliance/wasmtime",
+    "tag": "v50.0.0",
+    "asset": "wasi_snapshot_preview1.reactor.wasm",
+    "url": "https://github.com/bytecodealliance/wasmtime/releases/download/v50.0.0/wasi_snapshot_preview1.reactor.wasm",
+    "sha256": "73b01f85e42e99c890efbbf619cd765e04e5809da36d976b87fc64abd87f5812"
+  }
+]

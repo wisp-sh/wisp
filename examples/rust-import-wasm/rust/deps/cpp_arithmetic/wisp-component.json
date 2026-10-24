@@ -1,0 +1,15 @@
+{
+  "component": {
+    "path": "component.wasm",
+    "sha256": "67231a905de390ef47713661ecb6e53f7554c69ba7d9fd9e095b15e0c308bf6a"
+  },
+  "crate": "wisp-demo--cpp-math",
+  "kind": "wisp-rust-component-guest",
+  "notices": {
+    "WISP-NOTICES.txt": "71d19833c6d053c661527cda2b1b99255b6222bdbcd2c8a8a672bc09faa1f6a4"
+  },
+  "package": "demo:cpp-math",
+  "schema": 1,
+  "target": "wasm32-wasip1",
+  "version": "0.1.0"
+}

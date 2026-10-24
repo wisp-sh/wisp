@@ -1,0 +1,8 @@
+package wisp:composed-chain;
+
+let library = new wisp:library {};
+let consumer = new wisp:consumer {
+    "wisp:library-chain/arithmetic@0.1.0": library["wisp:library-chain/arithmetic@0.1.0"],
+};
+
+export consumer["wisp:library-chain/checkout@0.1.0"];

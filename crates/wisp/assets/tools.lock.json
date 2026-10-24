@@ -1,0 +1,36 @@
+{
+  "chromium": {
+    "url": "https://storage.googleapis.com/chrome-for-testing-public/153.0.8010.12/linux64/chrome-linux64.zip",
+    "sha256": "8aac35011c18f6e2d10696154af89a5728ac2ddd6dc6fad24ffdf243c3fcfd5a"
+  },
+  "wasm-tools": {
+    "repo": "bytecodealliance/wasm-tools",
+    "tag": "v1.245.0",
+    "asset": "wasm-tools-1.245.0-x86_64-linux.tar.gz",
+    "url": "https://github.com/bytecodealliance/wasm-tools/releases/download/v1.245.0/wasm-tools-1.245.0-x86_64-linux.tar.gz",
+    "sha256": "811edaad5ca41b95fe747826a033bbf9c4bb636ad0e51ece0b69631dfd8b8f50"
+  },
+  "rustc": {
+    "package": "rustc",
+    "url": "https://static.rust-lang.org/dist/2026-09-03/rustc-1.98.1-x86_64-unknown-linux-gnu.tar.xz",
+    "sha256": "e974f036b28565f37c0f3bd92ddefa809bee16c04f9dcf07b9ed96e05aaaf7c4"
+  },
+  "cargo": {
+    "package": "cargo",
+    "url": "https://static.rust-lang.org/dist/2026-09-03/cargo-1.98.1-x86_64-unknown-linux-gnu.tar.xz",
+    "sha256": "ea1de9f9e23107d97ee2b41a72c552f34064a593da503789218387aee59f3ba4"
+  },
+  "rust-std": {
+    "package": "rust-std",
+    "url": "https://static.rust-lang.org/dist/2026-09-03/rust-std-1.98.1-x86_64-unknown-linux-gnu.tar.xz",
+    "sha256": "fa3ff450172a16c026944030230c5069947af93c728d9179971d44e5e0cfb561"
+  },
+  "go": {
+    "url": "https://go.dev/dl/go1.27.1.linux-amd64.tar.gz",
+    "sha256": "63d339f0da5ab53635a56f2490a7984dfe12dfcff22ad749f63edaf590168445"
+  },
+  "node": {
+    "url": "https://nodejs.org/dist/v24.20.0/node-v24.20.0-linux-x64.tar.xz",
+    "sha256": "2f2c0da162318f0de47665410c7c8c2ed3d36c8f3105de4bbc61176c70a7cbf2"
+  }
+}

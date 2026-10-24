@@ -1,0 +1,11 @@
+package wisp:library-consumer@0.1.0;
+
+interface checkout {
+    use wisp:library-chain/arithmetic@0.1.0.{line-item, calculation-error};
+    total: func(item: line-item) -> result<u64, calculation-error>;
+}
+
+world consumer {
+    import wisp:library-chain/arithmetic@0.1.0;
+    export checkout;
+}

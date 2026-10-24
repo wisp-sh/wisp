@@ -1,0 +1,7 @@
+package wisp:jq@0.1.0;
+
+world jq-component {
+  /// Evaluate one JSON value. Outputs are serialized JSON, not raw strings.
+  /// Compilation, JSON parsing and runtime errors discard partial outputs.
+  export evaluate: func(filter: string, json: string) -> result<list<string>, string>;
+}

@@ -1,0 +1,2 @@
+package wisp:network-consumer@0.1.0;
+world consumer { export verify: func(url: string, open-port: u16, closed-port: u16) -> u32; }

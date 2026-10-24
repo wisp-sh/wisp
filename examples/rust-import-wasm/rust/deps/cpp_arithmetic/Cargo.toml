@@ -1,0 +1,8 @@
+[package]
+name = "wisp-demo--cpp-math"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "wisp_demo__cpp_math"
+path = "src/lib.rs"

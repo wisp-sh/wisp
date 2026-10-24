@@ -1,0 +1,11 @@
+[package]
+name = "demo:go-arithmetic"
+version = "0.1.0"
+
+[metadata]
+description = "Ordinary Go arithmetic imported by C++"
+license = "MIT"
+
+[build]
+compiler = "go"
+project = "src"

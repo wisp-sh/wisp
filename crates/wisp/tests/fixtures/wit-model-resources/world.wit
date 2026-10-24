@@ -1,0 +1,13 @@
+package example:resources@0.1.0;
+
+interface resources {
+  resource counter {
+    constructor(value: u32);
+    get: func() -> result<list<string>, string>;
+    merge: static func(target: borrow<counter>, source: own<counter>) -> result<list<string>, string>;
+  }
+}
+
+world fixture {
+  export resources;
+}

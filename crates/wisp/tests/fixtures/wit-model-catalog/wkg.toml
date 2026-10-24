@@ -1,0 +1,3 @@
+[metadata]
+description = "Deterministic executable catalog Component fixture"
+source = "checked-in component.wat"

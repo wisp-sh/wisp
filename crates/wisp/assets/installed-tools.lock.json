@@ -1,0 +1,31 @@
+{
+  "wasm-tools/wasm-tools": {
+    "sha256": "24692cc6ec59c4b1bdc1f8ab8ccf1778a8f0772669388e792bec330f5618fb1a"
+  },
+  "js/node_modules/.bin/jco": {
+    "sha256": "b1170bce06454a17d5b09576fc849f5b01b24e2ab25425a542a6c78e2ed9d22f",
+    "symlink": "../@bytecodealliance/jco/dist/jco.js"
+  },
+  "rust/bin/rustc": {
+    "sha256": "859254978c0a0402c32f949f6de0d99aee73be8d15f45aac00ae1448aac51e74"
+  },
+  "rust/bin/cargo": {
+    "sha256": "da77c8b33849312255ccde3179198ada4c8deb370488d050286146b1d1b27e14"
+  },
+  "go/bin/go": {
+    "sha256": "30969f97169d7f43fe6a085873d75613adc21e30818a8c61d95bd27275df4624"
+  },
+  "go/bin/gofmt": {
+    "sha256": "86dd91f69254432a37ca365f964720677040fd6f049a412c23e25f8b3812f342"
+  },
+  "node/bin/node": {
+    "sha256": "89af8424dd53e560b1933f87ba650d8bf57c83ca5a04600eefb31f416aabbae7"
+  },
+  "node/bin/npm": {
+    "sha256": "8e5f6f3429f8cdbe693cdc29904e9d5a7b127a494bd15c804bd54c7403bfcbe7",
+    "symlink": "../lib/node_modules/npm/bin/npm-cli.js"
+  },
+  "chromium/chrome-linux64/chrome": {
+    "sha256": "8c599d43aec53f2460a31ae2f4af6bd863f8258b34ff519564bc5d4726bfaa1e"
+  }
+}

@@ -1,0 +1,11 @@
+[package]
+name = "demo:rust-import-wasm"
+version = "0.1.0"
+
+[metadata]
+description = "Ordinary Rust importing packaged Go and C++ implementations"
+license = "MIT"
+
+[build]
+compiler = "rust"
+project = "rust"

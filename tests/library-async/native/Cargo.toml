@@ -1,0 +1,8 @@
+[package]
+name = "wisp-library-async-probe"
+version = "0.1.0"
+edition = "2024"
+publish = false
+[workspace]
+[dependencies]
+wasmtime = { version = "=50.0.0", default-features = false, features = ["component-model", "component-model-async", "cranelift", "runtime", "std"] }

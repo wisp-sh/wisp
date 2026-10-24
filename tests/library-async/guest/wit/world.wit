@@ -1,0 +1,8 @@
+package wisp:async-values@0.1.0;
+interface operations {
+  record payload { label: string, values: list<u32> }
+  delayed: async func(value: payload) -> future<payload>;
+  words: async func(values: list<string>) -> stream<string>;
+  active: func() -> u32;
+}
+world library { export operations; }

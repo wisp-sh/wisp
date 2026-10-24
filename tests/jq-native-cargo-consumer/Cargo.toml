@@ -1,0 +1,7 @@
+[package]
+name = "jq-installed-consumer"
+version = "0.1.0"
+edition = "2024"
+[workspace]
+[dependencies]
+wisp-wisp--jq = { path = "vendor/wisp-wisp--jq-0.1.0" }

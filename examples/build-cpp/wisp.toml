@@ -1,0 +1,9 @@
+[package]
+name = "demo:cpp-math"
+version = "0.1.0"
+[metadata]
+description = "C++ arithmetic compiled inside WebAssembly"
+license = "MIT"
+[build]
+compiler = "clang"
+sources = ["math.cpp"]

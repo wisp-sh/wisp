@@ -1,0 +1,16 @@
+[package]
+name = "demo:cpp-import-rust"
+version = "0.1.0"
+
+[metadata]
+description = "Ordinary C++ importing an installed Rust Component package"
+license = "MIT"
+
+[dependencies.arithmetic]
+package = "demo:rust-math"
+version = "0.1.0"
+path = "deps/arithmetic"
+
+[build]
+compiler = "clang"
+sources = ["cpp/main.cpp"]

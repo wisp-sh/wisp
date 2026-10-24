@@ -1,0 +1,39 @@
+package wisp:resource-library@0.1.0;
+
+interface counters {
+    resource counter {
+        constructor(start: u32);
+        value: func() -> u32;
+        add: func(delta: u32) -> u32;
+        clear: func();
+        combine: static func(left: borrow<counter>, right: own<counter>) -> own<counter>;
+        explode: func();
+    }
+    make: func(start: u32) -> own<counter>;
+    checked: func(start: u32) -> result<own<counter>, string>;
+    dropped: func() -> u32;
+}
+
+interface warehouse {
+    use counters.{counter};
+    record bundle {
+        primary: own<counter>,
+        others: list<own<counter>>,
+        optional: option<own<counter>>,
+    }
+    record selection { first: borrow<counter>, rest: list<borrow<counter>> }
+    record mixed { base: borrow<counter>, added: own<counter> }
+    type pair = tuple<borrow<counter>, option<borrow<counter>>>;
+    variant choice { missing, selected(own<counter>) }
+    make-bundle: func(start: u32) -> bundle;
+    echo-bundle: func(value: bundle) -> bundle;
+    echo-list: func(value: list<own<counter>>) -> list<own<counter>>;
+    echo-option: func(value: option<own<counter>>) -> option<own<counter>>;
+    echo-choice: func(value: choice) -> choice;
+    sum: func(value: selection) -> u32;
+    sum-pair: func(value: pair) -> u32;
+    sum-option: func(value: option<borrow<counter>>) -> u32;
+    mix: func(value: mixed) -> own<counter>;
+}
+
+world library { export counters; export warehouse; }

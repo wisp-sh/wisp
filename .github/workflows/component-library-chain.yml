@@ -1,0 +1,240 @@
+name: Component library chain
+on: [push, pull_request, workflow_dispatch]
+permissions:
+  contents: read
+concurrency:
+  group: component-library-chain-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  compose:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            architecture: x86_64
+          - runner: macos-15
+            architecture: arm64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    env:
+      RUSTUP_TOOLCHAIN: 1.93.0
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.11'
+      - name: Install pinned tools and fetch locked guest dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = '${{ matrix.architecture }}'
+          rustup toolchain install 1.93.0 --profile minimal --target wasm32-unknown-unknown
+          mkdir -p evidence/component-library-chain
+          python3 tests/component-chain/run.py --setup \
+            2>&1 | tee evidence/component-library-chain/setup.log
+      - name: Build, compose and execute without network access
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$(uname -s)" == Linux ]]; then
+            sudo unshare --net --setuid "$(id -u)" --setgid "$(id -g)" \
+              env HOME="$HOME" PATH="$PATH" RUSTUP_TOOLCHAIN=1.93.0 \
+              bash verify-component-chain.sh
+          else
+            sandbox-exec -p '(version 1) (allow default) (deny network*)' \
+              bash verify-component-chain.sh
+          fi
+  installed-packages:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            architecture: x86_64
+          - runner: macos-15
+            architecture: arm64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    env:
+      RUSTUP_TOOLCHAIN: 1.98.1
+      CARGO_INCREMENTAL: '0'
+      CARGO_BUILD_JOBS: '2'
+    steps:
+      - name: Prepare disk on disposable GitHub-hosted Linux runners
+        if: runner.environment == 'github-hosted' && runner.os == 'Linux'
+        run: |
+          sudo rm -rf -- /usr/share/dotnet /usr/local/lib/android /usr/local/.ghcup /opt/hostedtoolcache/CodeQL
+          df -h .
+      - name: Use runner temporary storage
+        shell: bash
+        run: echo "TMPDIR=$RUNNER_TEMP" >> "$GITHUB_ENV"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
+        with:
+          go-version: '1.27.1'
+          cache: false
+      - name: Provision pinned tools and dependency caches
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = '${{ matrix.architecture }}'
+          mkdir -p evidence/library-chain
+          python3 tests/library-chain/setup.py 2>&1 | tee evidence/library-chain/setup.log
+          cargo build --locked --offline -p wisp -p wisp-worker
+          echo "WISP_WORKER=$PWD/target/debug/wisp-worker" >> "$GITHUB_ENV"
+          echo "$PWD/.tools/library-chain-node/node/bin" >> "$GITHUB_PATH"
+          echo "WISP_NODE=$PWD/.tools/library-chain-node/node/bin/node" >> "$GITHUB_ENV"
+          echo "WISP_JCO=$PWD/.tools/library-js/node_modules/.bin/jco" >> "$GITHUB_ENV"
+      - name: Check setup environment in a fresh process
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo test --locked --offline -p wisp --bin wisp \
+            sourced_environment_retains_setup_npm_cache_in_fresh_process \
+            -- --test-threads=1 \
+            2>&1 | tee evidence/library-chain/setup-env.log
+      - name: Verify generated libraries package with only the Cargo seed
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo test --locked --offline -p wisp --bin wisp \
+            setup_seed_covers_generated_library_dependencies \
+            -- --test-threads=1
+          cargo test --locked --offline -p wisp --bin wisp \
+            setup_seed_packages_generated_libraries_offline \
+            -- --ignored --test-threads=1
+      - name: Execute worker protocol, ownership and isolation tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo test --locked --offline -p wisp-worker -p wisp-worker-protocol \
+            -- --test-threads=1 \
+            2>&1 | tee evidence/library-chain/worker.log
+      - name: Package and install through isolated Cargo and npm registries
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 tests/library-chain/run.py 2>&1 | tee evidence/library-chain/install.log
+      - name: Rebuild and execute with network access denied
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$(uname -s)" == Linux ]]; then
+            sudo unshare --net --setuid "$(id -u)" --setgid "$(id -g)" \
+              env HOME="$HOME" PATH="$PATH" RUSTUP_TOOLCHAIN=1.98.1 CARGO_INCREMENTAL=0 \
+              python3 tests/library-chain/run.py --replay \
+              2>&1 | tee evidence/library-chain/offline.log
+          else
+            sandbox-exec -p '(version 1) (allow default) (deny network*)' \
+              python3 tests/library-chain/run.py --replay \
+              2>&1 | tee evidence/library-chain/offline.log
+          fi
+      - name: Install and exercise nested values and shared interfaces
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 tests/library-chain/run.py --general --output-dir out/catalog-chain \
+            --build-dir out/library-chain/cargo-target \
+            2>&1 | tee evidence/library-chain/catalog-install.log
+          if [[ "$(uname -s)" == Linux ]]; then
+            sudo unshare --net --setuid "$(id -u)" --setgid "$(id -g)" \
+              env HOME="$HOME" PATH="$PATH" RUSTUP_TOOLCHAIN=1.98.1 CARGO_INCREMENTAL=0 \
+              python3 tests/library-chain/run.py --general --replay --output-dir out/catalog-chain \
+              --build-dir out/library-chain/cargo-target \
+              2>&1 | tee evidence/library-chain/catalog-offline.log
+          else
+            sandbox-exec -p '(version 1) (allow default) (deny network*)' \
+              python3 tests/library-chain/run.py --general --replay --output-dir out/catalog-chain \
+              --build-dir out/library-chain/cargo-target \
+              2>&1 | tee evidence/library-chain/catalog-offline.log
+          fi
+      - name: Install and execute asynchronous library values
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 tests/library-async/run.py 2>&1 | tee evidence/library-chain/async-install.log
+          if [[ "$(uname -s)" == Linux ]]; then
+            sudo unshare --net --setuid "$(id -u)" --setgid "$(id -g)" \
+              env HOME="$HOME" PATH="$PATH" RUSTUP_TOOLCHAIN=1.98.1 CARGO_INCREMENTAL=0 \
+              python3 tests/library-async/run.py --replay \
+              2>&1 | tee evidence/library-chain/async-offline.log
+          else
+            sandbox-exec -p '(version 1) (allow default) (deny network*)' \
+              python3 tests/library-async/run.py --replay \
+              2>&1 | tee evidence/library-chain/async-offline.log
+          fi
+      - name: Install and execute owned resource libraries
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 tests/library-resources/run.py \
+            --output-dir out/library-resources --build-dir out/library-chain/cargo-target \
+            2>&1 | tee evidence/library-chain/resources.log
+      - name: Install and execute error-context libraries
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 tests/library-error-context/run.py \
+            2>&1 | tee evidence/library-chain/error-context-install.log
+          python3 tests/library-error-context/run.py --replay \
+            2>&1 | tee evidence/library-chain/error-context-replay.log
+      - name: Install and execute networking with local application servers
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 tests/library-network/run.py \
+            --output-dir out/library-networks --build-dir out/library-chain/cargo-target \
+            2>&1 | tee evidence/library-chain/network-install.log
+          python3 tests/library-network/run.py --replay \
+            --output-dir out/library-networks --build-dir out/library-chain/cargo-target \
+            2>&1 | tee evidence/library-chain/network-replay.log
+      - name: Prepare, publish, fetch and install through local registries
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 tests/library-publication/run.py \
+            --cli target/debug/wisp --release out/library-chain/release \
+            --evidence evidence/library-chain/publication \
+            2>&1 | tee evidence/library-chain/publication.log
+      - name: Install and execute Go libraries from the local module proxy
+        shell: bash
+        run: |
+          set -euo pipefail
+          # All consumer replays have finished. Drop their Wasmtime build cache
+          # before Go builds its separate, reproducible native archive cache.
+          du -sh out/library-chain/cargo-target
+          rm -rf out/library-chain/cargo-target
+          df -h .
+          cargo test --locked --offline -p wisp \
+            --test library_go_guest --test library_go --test library_go_helpers \
+            --test library_go_resources \
+            --test library_go_network --test library_go_async \
+            --test library_go_error_context \
+            -- --test-threads=1 \
+            2>&1 | tee evidence/library-chain/go.log
+          cargo test --locked --offline -p wisp --bin wisp \
+            bundle_covers_the_pinned_shim_graph -- --ignored \
+            2>&1 | tee evidence/library-chain/go-licenses.log
+      - name: Check dependency resolution and library admission
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo test --locked --offline -p wisp \
+            --test dependencies --test library --test library_publish \
+            --test library_resources \
+            2>&1 | tee evidence/library-chain/rust-library-tests.log
+      - name: Publish and fetch a release with a Go module
+        shell: bash
+        run: |
+          set -euo pipefail
+          target/debug/wisp library pack out/library-chain/author \
+            --out out/library-chain-go --go-module component.local/library-chain \
+            2>&1 | tee evidence/library-chain/go-pack.log
+          python3 tests/library-publication/run.py \
+            --cli target/debug/wisp --release out/library-chain-go \
+            --evidence evidence/library-chain/go-publication \
+            2>&1 | tee evidence/library-chain/go-publication.log

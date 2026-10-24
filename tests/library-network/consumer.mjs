@@ -1,0 +1,14 @@
+import assert from 'node:assert/strict';
+import { requests } from '@wisp/network';
+const [url, open, closed] = process.argv.slice(2);
+const response = requests.fetch(url);
+assert.equal(response.status(), 200);
+assert.equal(response.body(), 'network body');
+response[Symbol.dispose]();
+assert.throws(() => response.body());
+assert.ok(requests.resolve('localhost') > 0);
+assert.throws(() => requests.resolve('invalid..name'));
+requests.connect(Number(open));
+assert.throws(() => requests.connect(Number(closed)));
+assert.throws(() => requests.fetch(`http://127.0.0.1:${closed}/`));
+console.log('network-node-passed');

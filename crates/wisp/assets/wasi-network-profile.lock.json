@@ -1,0 +1,14 @@
+{
+  "importContract": "2fdf8f199dddec6e47b8732b67bdaa4b0bd5db78f148624b7c9b37c2254e32ab",
+  "imports": [
+    "wasi:http/outgoing-handler@0.2.12",
+    "wasi:http/types@0.2.12",
+    "wasi:io/error@0.2.12",
+    "wasi:io/poll@0.2.12",
+    "wasi:io/streams@0.2.12",
+    "wasi:sockets/instance-network@0.2.12",
+    "wasi:sockets/network@0.2.12"
+  ],
+  "profile": "wasi-network-0.2.12",
+  "schema": 1
+}

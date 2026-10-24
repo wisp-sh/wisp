@@ -1,0 +1,23 @@
+[workspace]
+members = ["crates/wisp", "crates/wisp-worker", "crates/wisp-worker-protocol"]
+exclude = ["evidence", "out", "tmp", ".tools"]
+resolver = "3"
+
+[workspace.package]
+edition = "2024"
+version = "0.2.0"
+license = "Apache-2.0"
+
+[profile.dev]
+debug = 0
+
+# Admission hashes and decompresses authenticated generator archives as well as
+# uploaded packages. Keep those dependencies fast in local verification builds.
+[profile.dev.package.sha2]
+opt-level = 3
+
+[profile.dev.package.flate2]
+opt-level = 3
+
+[profile.dev.package.miniz_oxide]
+opt-level = 3

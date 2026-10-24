@@ -1,0 +1,11 @@
+[package]
+name = "demo:rust-math"
+version = "0.1.0"
+
+[metadata]
+description = "Ordinary Rust arithmetic compiled by a Rust compiler running in Wasm"
+license = "MIT"
+
+[build]
+compiler = "rust"
+project = "rust"

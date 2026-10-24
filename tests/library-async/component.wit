@@ -1,0 +1,3 @@
+package wisp:async-consumer@0.1.0;
+interface check { run: async func() -> u32; }
+world consumer { import wisp:async-values/operations@0.1.0; export check; }

@@ -1,0 +1,17 @@
+package wisp:catalog-consumer@0.1.0;
+
+interface checkout {
+    use wisp:catalog/types@0.1.0.{request, response, failure};
+    process: func(value: request) -> result<response, failure>;
+    echo: func(value: response) -> response;
+    greet: func(value: string) -> string;
+    count: func(values: list<string>) -> u32;
+    shared-state: func() -> u32;
+}
+
+world consumer {
+    import wisp:catalog/types@0.1.0;
+    import wisp:catalog/catalog@0.1.0;
+    import wisp:catalog/formatting@0.1.0;
+    export checkout;
+}

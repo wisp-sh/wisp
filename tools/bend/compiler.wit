@@ -1,0 +1,5 @@
+package wisp:bend-compiler@0.1.0;
+
+world compiler {
+    export compile: func(request: string) -> string;
+}

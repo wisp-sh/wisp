@@ -1,0 +1,15 @@
+{
+  "schema": 1,
+  "owner": "lab",
+  "project": "duet",
+  "version": "0.1.0",
+  "sha256": "b1f6c573bec4035501bc0f6adc37ea68d02b53e185c3a0ba3370f69dac9493c6",
+  "targets": [
+    "rust",
+    "go",
+    "node",
+    "browser"
+  ],
+  "imports": [],
+  "grants": []
+}

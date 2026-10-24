@@ -1,0 +1,18 @@
+// Pure WASI host. Load only the packaged core modules, never remote code.
+import { readFileSync } from 'node:fs';
+import { instantiate } from './guest.js';
+import { pureImports } from './pure-host.js';
+const names = @MODULES@;
+const modules = new Map(names.map(name => [name, new WebAssembly.Module(readFileSync(new URL(`./${name}`, import.meta.url)))]));
+function fresh() {
+  return instantiate(name => {
+    if (!modules.has(name)) throw new Error('unknown packaged module');
+    return modules.get(name);
+  }, pureImports());
+}
+let guest = fresh();
+export function evaluate(filter, json) {
+  if (!guest) guest = fresh();
+  try { return guest.evaluate(filter, json); }
+  catch (error) { guest = null; throw error; }
+}

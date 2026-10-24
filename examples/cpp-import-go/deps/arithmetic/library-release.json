@@ -1,0 +1,967 @@
+{
+  "componentSha256": "7f0f101e53f38e61f3b18db590e0640ec6546c03d5b3e6d609e161433a9ceba5",
+  "contract": {
+    "exports": [
+      {
+        "functions": [
+          {
+            "async": "sync",
+            "itemName": "add",
+            "kind": "freestanding",
+            "name": "add",
+            "params": [
+              [
+                "a0",
+                "u32"
+              ],
+              [
+                "a1",
+                "u32"
+              ]
+            ],
+            "result": "u32"
+          },
+          {
+            "async": "sync",
+            "itemName": "negate",
+            "kind": "freestanding",
+            "name": "negate",
+            "params": [
+              [
+                "a0",
+                "bool"
+              ]
+            ],
+            "result": "bool"
+          },
+          {
+            "async": "sync",
+            "itemName": "widen",
+            "kind": "freestanding",
+            "name": "widen",
+            "params": [
+              [
+                "a0",
+                "u64"
+              ]
+            ],
+            "result": "u64"
+          }
+        ],
+        "imported": false,
+        "name": "api",
+        "package": "demo:go-arithmetic@0.1.0",
+        "types": []
+      }
+    ],
+    "imports": [
+      {
+        "functions": [
+          {
+            "async": "sync",
+            "itemName": "get-environment",
+            "kind": "freestanding",
+            "name": "get-environment",
+            "params": [],
+            "result": {
+              "list": {
+                "tuple": [
+                  "string",
+                  "string"
+                ]
+              }
+            }
+          },
+          {
+            "async": "sync",
+            "itemName": "get-arguments",
+            "kind": "freestanding",
+            "name": "get-arguments",
+            "params": [],
+            "result": {
+              "list": "string"
+            }
+          }
+        ],
+        "imported": true,
+        "name": "environment",
+        "package": "wasi:cli@0.2.12",
+        "types": []
+      },
+      {
+        "functions": [
+          {
+            "async": "sync",
+            "itemName": "exit",
+            "kind": "freestanding",
+            "name": "exit",
+            "params": [
+              [
+                "status",
+                {
+                  "result": {
+                    "err": null,
+                    "ok": null
+                  }
+                }
+              ]
+            ],
+            "result": null
+          }
+        ],
+        "imported": true,
+        "name": "exit",
+        "package": "wasi:cli@0.2.12",
+        "types": []
+      },
+      {
+        "functions": [],
+        "imported": true,
+        "name": "error",
+        "package": "wasi:io@0.2.12",
+        "types": [
+          {
+            "name": "error",
+            "type": "resource"
+          }
+        ]
+      },
+      {
+        "functions": [
+          {
+            "async": "sync",
+            "itemName": "poll",
+            "kind": "freestanding",
+            "name": "poll",
+            "params": [
+              [
+                "in",
+                {
+                  "list": {
+                    "borrow": "pollable"
+                  }
+                }
+              ]
+            ],
+            "result": {
+              "list": "u32"
+            }
+          }
+        ],
+        "imported": true,
+        "name": "poll",
+        "package": "wasi:io@0.2.12",
+        "types": [
+          {
+            "name": "pollable",
+            "type": "resource"
+          }
+        ]
+      },
+      {
+        "functions": [
+          {
+            "async": "sync",
+            "itemName": "subscribe",
+            "kind": "method",
+            "name": "[method]input-stream.subscribe",
+            "ownerResource": "input-stream",
+            "params": [
+              [
+                "self",
+                {
+                  "borrow": "input-stream"
+                }
+              ]
+            ],
+            "result": {
+              "own": "pollable"
+            }
+          },
+          {
+            "async": "sync",
+            "itemName": "check-write",
+            "kind": "method",
+            "name": "[method]output-stream.check-write",
+            "ownerResource": "output-stream",
+            "params": [
+              [
+                "self",
+                {
+                  "borrow": "output-stream"
+                }
+              ]
+            ],
+            "result": {
+              "result": {
+                "err": {
+                  "named": "stream-error"
+                },
+                "ok": "u64"
+              }
+            }
+          },
+          {
+            "async": "sync",
+            "itemName": "write",
+            "kind": "method",
+            "name": "[method]output-stream.write",
+            "ownerResource": "output-stream",
+            "params": [
+              [
+                "self",
+                {
+                  "borrow": "output-stream"
+                }
+              ],
+              [
+                "contents",
+                {
+                  "list": "u8"
+                }
+              ]
+            ],
+            "result": {
+              "result": {
+                "err": {
+                  "named": "stream-error"
+                },
+                "ok": null
+              }
+            }
+          },
+          {
+            "async": "sync",
+            "itemName": "blocking-write-and-flush",
+            "kind": "method",
+            "name": "[method]output-stream.blocking-write-and-flush",
+            "ownerResource": "output-stream",
+            "params": [
+              [
+                "self",
+                {
+                  "borrow": "output-stream"
+                }
+              ],
+              [
+                "contents",
+                {
+                  "list": "u8"
+                }
+              ]
+            ],
+            "result": {
+              "result": {
+                "err": {
+                  "named": "stream-error"
+                },
+                "ok": null
+              }
+            }
+          },
+          {
+            "async": "sync",
+            "itemName": "blocking-flush",
+            "kind": "method",
+            "name": "[method]output-stream.blocking-flush",
+            "ownerResource": "output-stream",
+            "params": [
+              [
+                "self",
+                {
+                  "borrow": "output-stream"
+                }
+              ]
+            ],
+            "result": {
+              "result": {
+                "err": {
+                  "named": "stream-error"
+                },
+                "ok": null
+              }
+            }
+          },
+          {
+            "async": "sync",
+            "itemName": "subscribe",
+            "kind": "method",
+            "name": "[method]output-stream.subscribe",
+            "ownerResource": "output-stream",
+            "params": [
+              [
+                "self",
+                {
+                  "borrow": "output-stream"
+                }
+              ]
+            ],
+            "result": {
+              "own": "pollable"
+            }
+          }
+        ],
+        "imported": true,
+        "name": "streams",
+        "package": "wasi:io@0.2.12",
+        "types": [
+          {
+            "name": "error",
+            "type": {
+              "named": "error"
+            }
+          },
+          {
+            "name": "output-stream",
+            "type": "resource"
+          },
+          {
+            "name": "input-stream",
+            "type": "resource"
+          },
+          {
+            "name": "stream-error",
+            "type": {
+              "variant": [
+                [
+                  "last-operation-failed",
+                  {
+                    "own": "error"
+                  }
+                ],
+                [
+                  "closed",
+                  null
+                ]
+              ]
+            }
+          },
+          {
+            "name": "pollable",
+            "type": {
+              "named": "pollable"
+            }
+          }
+        ]
+      },
+      {
+        "functions": [
+          {
+            "async": "sync",
+            "itemName": "get-stdin",
+            "kind": "freestanding",
+            "name": "get-stdin",
+            "params": [],
+            "result": {
+              "own": "input-stream"
+            }
+          }
+        ],
+        "imported": true,
+        "name": "stdin",
+        "package": "wasi:cli@0.2.12",
+        "types": [
+          {
+            "name": "input-stream",
+            "type": {
+              "named": "input-stream"
+            }
+          }
+        ]
+      },
+      {
+        "functions": [
+          {
+            "async": "sync",
+            "itemName": "get-stdout",
+            "kind": "freestanding",
+            "name": "get-stdout",
+            "params": [],
+            "result": {
+              "own": "output-stream"
+            }
+          }
+        ],
+        "imported": true,
+        "name": "stdout",
+        "package": "wasi:cli@0.2.12",
+        "types": [
+          {
+            "name": "output-stream",
+            "type": {
+              "named": "output-stream"
+            }
+          }
+        ]
+      },
+      {
+        "functions": [
+          {
+            "async": "sync",
+            "itemName": "get-stderr",
+            "kind": "freestanding",
+            "name": "get-stderr",
+            "params": [],
+            "result": {
+              "own": "output-stream"
+            }
+          }
+        ],
+        "imported": true,
+        "name": "stderr",
+        "package": "wasi:cli@0.2.12",
+        "types": [
+          {
+            "name": "output-stream",
+            "type": {
+              "named": "output-stream"
+            }
+          }
+        ]
+      },
+      {
+        "functions": [
+          {
+            "async": "sync",
+            "itemName": "now",
+            "kind": "freestanding",
+            "name": "now",
+            "params": [],
+            "result": {
+              "named": "instant"
+            }
+          },
+          {
+            "async": "sync",
+            "itemName": "subscribe-instant",
+            "kind": "freestanding",
+            "name": "subscribe-instant",
+            "params": [
+              [
+                "when",
+                {
+                  "named": "instant"
+                }
+              ]
+            ],
+            "result": {
+              "own": "pollable"
+            }
+          },
+          {
+            "async": "sync",
+            "itemName": "subscribe-duration",
+            "kind": "freestanding",
+            "name": "subscribe-duration",
+            "params": [
+              [
+                "when",
+                {
+                  "named": "duration"
+                }
+              ]
+            ],
+            "result": {
+              "own": "pollable"
+            }
+          }
+        ],
+        "imported": true,
+        "name": "monotonic-clock",
+        "package": "wasi:clocks@0.2.12",
+        "types": [
+          {
+            "name": "instant",
+            "type": "u64"
+          },
+          {
+            "name": "duration",
+            "type": "u64"
+          },
+          {
+            "name": "pollable",
+            "type": {
+              "named": "pollable"
+            }
+          }
+        ]
+      },
+      {
+        "functions": [
+          {
+            "async": "sync",
+            "itemName": "now",
+            "kind": "freestanding",
+            "name": "now",
+            "params": [],
+            "result": {
+              "named": "datetime"
+            }
+          }
+        ],
+        "imported": true,
+        "name": "wall-clock",
+        "package": "wasi:clocks@0.2.12",
+        "types": [
+          {
+            "name": "datetime",
+            "type": {
+              "record": [
+                [
+                  "seconds",
+                  "u64"
+                ],
+                [
+                  "nanoseconds",
+                  "u32"
+                ]
+              ]
+            }
+          }
+        ]
+      },
+      {
+        "functions": [
+          {
+            "async": "sync",
+            "itemName": "read-via-stream",
+            "kind": "method",
+            "name": "[method]descriptor.read-via-stream",
+            "ownerResource": "descriptor",
+            "params": [
+              [
+                "self",
+                {
+                  "borrow": "descriptor"
+                }
+              ],
+              [
+                "offset",
+                {
+                  "named": "filesize"
+                }
+              ]
+            ],
+            "result": {
+              "result": {
+                "err": {
+                  "named": "error-code"
+                },
+                "ok": {
+                  "own": "input-stream"
+                }
+              }
+            }
+          },
+          {
+            "async": "sync",
+            "itemName": "write-via-stream",
+            "kind": "method",
+            "name": "[method]descriptor.write-via-stream",
+            "ownerResource": "descriptor",
+            "params": [
+              [
+                "self",
+                {
+                  "borrow": "descriptor"
+                }
+              ],
+              [
+                "offset",
+                {
+                  "named": "filesize"
+                }
+              ]
+            ],
+            "result": {
+              "result": {
+                "err": {
+                  "named": "error-code"
+                },
+                "ok": {
+                  "own": "output-stream"
+                }
+              }
+            }
+          },
+          {
+            "async": "sync",
+            "itemName": "append-via-stream",
+            "kind": "method",
+            "name": "[method]descriptor.append-via-stream",
+            "ownerResource": "descriptor",
+            "params": [
+              [
+                "self",
+                {
+                  "borrow": "descriptor"
+                }
+              ]
+            ],
+            "result": {
+              "result": {
+                "err": {
+                  "named": "error-code"
+                },
+                "ok": {
+                  "own": "output-stream"
+                }
+              }
+            }
+          },
+          {
+            "async": "sync",
+            "itemName": "get-type",
+            "kind": "method",
+            "name": "[method]descriptor.get-type",
+            "ownerResource": "descriptor",
+            "params": [
+              [
+                "self",
+                {
+                  "borrow": "descriptor"
+                }
+              ]
+            ],
+            "result": {
+              "result": {
+                "err": {
+                  "named": "error-code"
+                },
+                "ok": {
+                  "named": "descriptor-type"
+                }
+              }
+            }
+          },
+          {
+            "async": "sync",
+            "itemName": "stat",
+            "kind": "method",
+            "name": "[method]descriptor.stat",
+            "ownerResource": "descriptor",
+            "params": [
+              [
+                "self",
+                {
+                  "borrow": "descriptor"
+                }
+              ]
+            ],
+            "result": {
+              "result": {
+                "err": {
+                  "named": "error-code"
+                },
+                "ok": {
+                  "named": "descriptor-stat"
+                }
+              }
+            }
+          },
+          {
+            "async": "sync",
+            "itemName": "filesystem-error-code",
+            "kind": "freestanding",
+            "name": "filesystem-error-code",
+            "params": [
+              [
+                "err",
+                {
+                  "borrow": "error"
+                }
+              ]
+            ],
+            "result": {
+              "option": {
+                "named": "error-code"
+              }
+            }
+          }
+        ],
+        "imported": true,
+        "name": "types",
+        "package": "wasi:filesystem@0.2.12",
+        "types": [
+          {
+            "name": "error",
+            "type": {
+              "named": "error"
+            }
+          },
+          {
+            "name": "error-code",
+            "type": {
+              "enum": [
+                "access",
+                "would-block",
+                "already",
+                "bad-descriptor",
+                "busy",
+                "deadlock",
+                "quota",
+                "exist",
+                "file-too-large",
+                "illegal-byte-sequence",
+                "in-progress",
+                "interrupted",
+                "invalid",
+                "io",
+                "is-directory",
+                "loop",
+                "too-many-links",
+                "message-size",
+                "name-too-long",
+                "no-device",
+                "no-entry",
+                "no-lock",
+                "insufficient-memory",
+                "insufficient-space",
+                "not-directory",
+                "not-empty",
+                "not-recoverable",
+                "unsupported",
+                "no-tty",
+                "no-such-device",
+                "overflow",
+                "not-permitted",
+                "pipe",
+                "read-only",
+                "invalid-seek",
+                "text-file-busy",
+                "cross-device"
+              ]
+            }
+          },
+          {
+            "name": "descriptor",
+            "type": "resource"
+          },
+          {
+            "name": "descriptor-type",
+            "type": {
+              "enum": [
+                "unknown",
+                "block-device",
+                "character-device",
+                "directory",
+                "fifo",
+                "symbolic-link",
+                "regular-file",
+                "socket"
+              ]
+            }
+          },
+          {
+            "name": "output-stream",
+            "type": {
+              "named": "output-stream"
+            }
+          },
+          {
+            "name": "filesize",
+            "type": "u64"
+          },
+          {
+            "name": "input-stream",
+            "type": {
+              "named": "input-stream"
+            }
+          },
+          {
+            "name": "link-count",
+            "type": "u64"
+          },
+          {
+            "name": "datetime",
+            "type": {
+              "named": "datetime"
+            }
+          },
+          {
+            "name": "descriptor-stat",
+            "type": {
+              "record": [
+                [
+                  "type",
+                  {
+                    "named": "descriptor-type"
+                  }
+                ],
+                [
+                  "link-count",
+                  {
+                    "named": "link-count"
+                  }
+                ],
+                [
+                  "size",
+                  {
+                    "named": "filesize"
+                  }
+                ],
+                [
+                  "data-access-timestamp",
+                  {
+                    "option": {
+                      "named": "datetime"
+                    }
+                  }
+                ],
+                [
+                  "data-modification-timestamp",
+                  {
+                    "option": {
+                      "named": "datetime"
+                    }
+                  }
+                ],
+                [
+                  "status-change-timestamp",
+                  {
+                    "option": {
+                      "named": "datetime"
+                    }
+                  }
+                ]
+              ]
+            }
+          }
+        ]
+      },
+      {
+        "functions": [
+          {
+            "async": "sync",
+            "itemName": "get-directories",
+            "kind": "freestanding",
+            "name": "get-directories",
+            "params": [],
+            "result": {
+              "list": {
+                "tuple": [
+                  {
+                    "own": "descriptor"
+                  },
+                  "string"
+                ]
+              }
+            }
+          }
+        ],
+        "imported": true,
+        "name": "preopens",
+        "package": "wasi:filesystem@0.2.12",
+        "types": [
+          {
+            "name": "descriptor",
+            "type": {
+              "named": "descriptor"
+            }
+          }
+        ]
+      },
+      {
+        "functions": [
+          {
+            "async": "sync",
+            "itemName": "get-random-bytes",
+            "kind": "freestanding",
+            "name": "get-random-bytes",
+            "params": [
+              [
+                "len",
+                "u64"
+              ]
+            ],
+            "result": {
+              "list": "u8"
+            }
+          }
+        ],
+        "imported": true,
+        "name": "random",
+        "package": "wasi:random@0.2.12",
+        "types": []
+      }
+    ],
+    "package": "root:component",
+    "schema": 1,
+    "world": "root"
+  },
+  "identity": "demo:go-arithmetic",
+  "kind": "component-library",
+  "metadata": {
+    "authors": [],
+    "description": "Ordinary Go arithmetic imported by C++",
+    "homepage": null,
+    "license": "MIT",
+    "notices": {
+      "Go-LICENSE.txt": "Copyright 2009 The Go Authors.\n\nRedistribution and use in source and binary forms, with or without\nmodification, are permitted provided that the following conditions are\nmet:\n\n   * Redistributions of source code must retain the above copyright\nnotice, this list of conditions and the following disclaimer.\n   * Redistributions in binary form must reproduce the above\ncopyright notice, this list of conditions and the following disclaimer\nin the documentation and/or other materials provided with the\ndistribution.\n   * Neither the name of Google LLC nor the names of its\ncontributors may be used to endorse or promote products derived from\nthis software without specific prior written permission.\n\nTHIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS\n\"AS IS\" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT\nLIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR\nA PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT\nOWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,\nSPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT\nLIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,\nDATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY\nTHEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT\n(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE\nOF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.\n"
+    },
+    "repository": null
+  },
+  "packages": {
+    "node": {
+      "name": "@demo/go-arithmetic",
+      "sha256": "3924488312dbcc8c093f23e6a9b53be0dacf0597787edae4f21f2619b3901488"
+    },
+    "rust": {
+      "name": "wisp-demo--go-arithmetic",
+      "sha256": "35972d36744ee865aa028a9bddd0d434c04ba81033156b336df2a169bc95bcdb"
+    }
+  },
+  "schema": 3,
+  "targetRequirements": {
+    "browser": {
+      "initialization": "top-level-await",
+      "reason": "unsupported-browser-wasi-reactor",
+      "supported": false
+    },
+    "errorContext": {
+      "nativeCleanup": "not-applicable",
+      "nativeCumulativeLiftLimit": null,
+      "supported": false
+    },
+    "go": {
+      "cgo": false,
+      "platform": null
+    },
+    "node": {
+      "flags": [],
+      "futureCancellation": "not-applicable",
+      "version": "24.20.0"
+    },
+    "rustComponent": {
+      "hostImports": "outer-runtime",
+      "target": "wasm32-unknown-unknown"
+    },
+    "rustNative": {
+      "network": "none",
+      "platforms": [
+        "linux-x86_64",
+        "macos-aarch64"
+      ]
+    },
+    "wasiReactor": {
+      "arguments": "empty",
+      "clocks": "host",
+      "environment": "empty",
+      "filesystem": "no-preopens",
+      "random": "secure",
+      "stdio": "isolated"
+    }
+  },
+  "targets": [
+    "rust-native",
+    "rust-wasm32-unknown-unknown",
+    "node"
+  ],
+  "tools": {
+    "jco": "1.33.0",
+    "wasmtime": "50.0.0",
+    "witBindgen": "0.61.1",
+    "witParser": "0.245.1"
+  },
+  "version": "0.1.0"
+}

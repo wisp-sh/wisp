@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>Wisp catalog browser acceptance</title>
+<body><pre id="result">Running catalog checks...</pre>
+<script type="module">
+const result = document.querySelector('#result');
+try {
+  const { catalog, formatting } = await import('./index.js');
+  const assert = (condition, message) => { if (!condition) throw new Error(message); };
+  const request = items => ({items, label: 'order', policy: {gift: true, priority: true},
+    metadata: [7, 'meta'], detail: {tag: 'numbers', val: [1, 2]}});
+  const value = catalog.process(request([{name: 'book', amount: 2, tags: ['a', 'b']},
+    {name: 'pen', amount: 5, tags: []}]));
+  assert(value.summary === 'order:book', 'nested summary');
+  assert(value.counts instanceof Uint32Array && value.counts.join() === '2,5', 'list payload');
+  assert(value.first.name === 'book' && value.first.tags.join() === 'a,b', 'nested optional record');
+  assert(value.policy.gift && value.policy.priority, 'flags');
+  assert(value.metadata[0] === 7 && value.metadata[1] === 'meta', 'tuple');
+  assert(value.detail.tag === 'numbers' && value.detail.val.join() === '1,2', 'variant payload');
+  assert(formatting.echo(value).summary === 'order:book', 'shared interface types');
+  let empty = false, invalid = false;
+  try { catalog.process(request([])); } catch (e) { empty = e.payload?.tag === 'empty'; }
+  try { catalog.process(request([{name:'bad', amount:0, tags:[]}])); }
+  catch (e) { invalid = e.payload?.tag === 'invalid' && e.payload.val === 'bad'; }
+  assert(empty && invalid, 'typed errors');
+  assert(formatting.greet('world') === 'hello world', 'string return');
+  assert(formatting.count(['a', 'b']) === 2, 'scalar return');
+  assert(formatting.current() === 0 && catalog.increment() === 1 && formatting.current() === 1,
+    'interfaces share first update');
+  assert(catalog.increment() === 2 && formatting.current() === 2, 'interfaces share second update');
+  window.__wispBrowserResult = {status: 'passed', typedErrors: ['empty', 'invalid(bad)'], counter: 2,
+    userAgent: navigator.userAgent};
+  result.textContent = JSON.stringify(window.__wispBrowserResult, null, 2);
+} catch (error) {
+  window.__wispBrowserResult = {status: 'failed', message: String(error), stack: error.stack};
+  result.textContent = JSON.stringify(window.__wispBrowserResult, null, 2);
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,8 @@
+# Wisp-only assertions. Identity comes from wit/jq.wit, not this file.
+[package]
+name = "wisp:jq"
+version = "0.1.0"
+
+[component]
+path = "component.wasm"
+sha256 = "3f4f95f882d2f7e574e1a3dcd01f690a8f72e928fe8c7d151892daf6433b173e"

@@ -1,0 +1,19 @@
+{
+  "component": {
+    "path": "component.wasm",
+    "sha256": "b16e8226418e215a11c9433e57caecb4be113568e012cfd1016f63dac891851c"
+  },
+  "kind": "wisp-go-component-library",
+  "module": "example.org/cpp-arithmetic",
+  "platform": "native_wasm",
+  "runtime": {
+    "component": {
+      "path": "component.wasm",
+      "sha256": "b16e8226418e215a11c9433e57caecb4be113568e012cfd1016f63dac891851c"
+    },
+    "module": "github.com/wago-org/wago",
+    "version": "v0.1.0-beta.11"
+  },
+  "schema": 1,
+  "version": "0.3.0"
+}

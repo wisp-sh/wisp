@@ -1,0 +1,11 @@
+{
+  "name": "wisp-jq-js-spike-tools",
+  "private": true,
+  "type": "module",
+  "devDependencies": {
+    "@bytecodealliance/jco": "1.33.0",
+    "@bytecodealliance/preview2-shim": "0.24.1",
+    "playwright": "1.63.0",
+    "esbuild": "0.28.2"
+  }
+}

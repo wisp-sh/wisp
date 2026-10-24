@@ -1,0 +1,16 @@
+{
+  "component": {
+    "path": "component.wasm",
+    "sha256": "7f0f101e53f38e61f3b18db590e0640ec6546c03d5b3e6d609e161433a9ceba5"
+  },
+  "crate": "wisp-demo--go-arithmetic",
+  "kind": "wisp-rust-component-guest",
+  "notices": {
+    "WISP-NOTICES.txt": "71d19833c6d053c661527cda2b1b99255b6222bdbcd2c8a8a672bc09faa1f6a4",
+    "notices/Go-LICENSE.txt": "911f8f5782931320f5b8d1160a76365b83aea6447ee6c04fa6d5591467db9dad"
+  },
+  "package": "demo:go-arithmetic",
+  "schema": 1,
+  "target": "wasm32-wasip1",
+  "version": "0.1.0"
+}

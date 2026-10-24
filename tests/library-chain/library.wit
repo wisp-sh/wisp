@@ -1,0 +1,14 @@
+package wisp:library-chain@0.1.0;
+
+interface arithmetic {
+    record line-item {
+        quantity: u32,
+        unit-price: u64,
+    }
+    enum calculation-error { overflow }
+    total: func(item: line-item) -> result<u64, calculation-error>;
+}
+
+world library {
+    export arithmetic;
+}

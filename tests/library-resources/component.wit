@@ -1,0 +1,2 @@
+package wisp:resource-consumer@0.1.0;
+world consumer { export verify: func() -> u32; }

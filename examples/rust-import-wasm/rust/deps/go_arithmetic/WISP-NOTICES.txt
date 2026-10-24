@@ -1,0 +1,1 @@
+This Rust dependency contains an admitted WebAssembly Component and generated scalar import wrappers. Component notices are under notices/. Wisp does not infer a Component license.

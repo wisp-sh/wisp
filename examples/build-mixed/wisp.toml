@@ -1,0 +1,18 @@
+[package]
+name = "demo:mixed-math"
+version = "0.1.0"
+[metadata]
+description = "A Go library calling a C++ Component dependency"
+license = "MIT"
+[build]
+root = "application"
+[build.units.arithmetic]
+compiler = "clang"
+world = "math"
+sources = ["math.cpp"]
+[build.units.application]
+compiler = "go"
+world = "application"
+project = "go"
+[build.units.application.dependencies]
+"demo:mixed-math/arithmetic@0.1.0" = "arithmetic"

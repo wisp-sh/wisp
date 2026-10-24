@@ -1,0 +1,7 @@
+[package]
+name = "demo:bend-math"
+version = "0.1.0"
+
+[build]
+compiler = "bend"
+sources = ["math.bend"]

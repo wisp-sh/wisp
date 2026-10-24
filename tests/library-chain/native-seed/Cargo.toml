@@ -1,0 +1,13 @@
+[package]
+name = "wisp-library-native-seed"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[dependencies]
+wasmtime = { version = "=50.0.0", default-features = false, features = ["component-model", "cranelift", "runtime", "std"] }
+
+[profile.dev]
+debug = 0

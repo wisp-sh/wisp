@@ -1,0 +1,37 @@
+[package]
+name = "wisp"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Compile source projects to WebAssembly Components and package them as native libraries"
+
+[dependencies]
+wisp-worker-protocol = { path = "../wisp-worker-protocol" }
+anyhow = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+wit-parser = { version = "=0.245.1", features = ["decoding", "serde"] }
+wasmparser = "=0.245.1"
+wasm-encoder = { version = "=0.245.1", features = ["wasmparser"] }
+wit-component = "=0.245.1"
+heck = "=0.5.0"
+base64 = "0.22"
+sha1 = "0.10"
+toml = "0.9"
+semver = { version = "1", features = ["serde"] }
+
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
+zip = { version = "2", default-features = false, features = ["deflate"] }
+
+tar = "0.4"
+flate2 = "1"
+regex = "1"
+tree-sitter = "=0.25.10"
+tree-sitter-javascript = "=0.25.0"
+tree-sitter-go = "=0.25.0"
+tree-sitter-cpp = "=0.23.4"
+syn = { version = "=2.0.119", features = ["full", "parsing"] }
+tempfile = "3"
+
+[dev-dependencies]

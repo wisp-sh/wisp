@@ -1,0 +1,25 @@
+// Browser-only entry for the authenticated pure-WASI jq host profile.
+import { instantiate } from './guest.js';
+import { pureImports } from './pure-host.js';
+
+const names = @MODULES@;
+const modules = new Map(await Promise.all(names.map(async name => {
+  const url = new URL(`./${name}`, import.meta.url);
+  const response = await fetch(url, {redirect: 'error'});
+  if (!response.ok || response.url !== url.href) throw new Error('local Wasm load failed');
+  return [name, await WebAssembly.compile(await response.arrayBuffer())];
+})));
+function fresh() {
+  const instance = instantiate(name => {
+    if (!modules.has(name)) throw new Error('unknown packaged module');
+    return modules.get(name);
+  }, pureImports());
+  if (instance instanceof Promise) throw new Error('unexpected asynchronous component instance');
+  return instance;
+}
+let guest = fresh();
+export function evaluate(filter, json) {
+  if (!guest) guest = fresh();
+  try { return guest.evaluate(filter, json); }
+  catch (error) { guest = null; throw error; }
+}

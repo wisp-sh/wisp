@@ -1,0 +1,11 @@
+[package]
+name = "demo:goose-math"
+version = "0.1.0"
+
+[metadata]
+description = "Goose scalar arithmetic compiled entirely inside WebAssembly"
+license = "MIT"
+
+[build]
+compiler = "goose"
+sources = ["math.goose"]

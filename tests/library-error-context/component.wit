@@ -1,0 +1,3 @@
+package wisp:context-consumer@0.1.0;
+interface check { run: func() -> u32; }
+world consumer { import wisp:context-values/errors@0.1.0; export check; }

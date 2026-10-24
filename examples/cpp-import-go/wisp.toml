@@ -1,0 +1,16 @@
+[package]
+name = "demo:cpp-import-go"
+version = "0.1.0"
+
+[metadata]
+description = "Ordinary C++ importing an installed Go Component package"
+license = "MIT"
+
+[dependencies.arithmetic]
+package = "demo:go-arithmetic"
+version = "0.1.0"
+path = "deps/arithmetic"
+
+[build]
+compiler = "clang"
+sources = ["cpp/main.cpp"]

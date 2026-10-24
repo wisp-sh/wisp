@@ -1,0 +1,17 @@
+{
+  "schema": 1,
+  "node": "24.20.0",
+  "npm": "11.19.0",
+  "platforms": {
+    "Darwin-arm64": {
+      "url": "https://nodejs.org/dist/v24.20.0/node-v24.20.0-darwin-arm64.tar.xz",
+      "sha256": "b7bf7707070b950ba1ec5f1af3bb6de0f2b1962c5033973d94068ab021ef3014",
+      "node_sha256": "9d050fd455b56426e25d4d603c7c501cbb2630348e836cf221dcce748e90588a"
+    },
+    "Linux-x86_64": {
+      "url": "https://nodejs.org/dist/v24.20.0/node-v24.20.0-linux-x64.tar.xz",
+      "sha256": "2f2c0da162318f0de47665410c7c8c2ed3d36c8f3105de4bbc61176c70a7cbf2",
+      "node_sha256": "89af8424dd53e560b1933f87ba650d8bf57c83ca5a04600eefb31f416aabbae7"
+    }
+  }
+}

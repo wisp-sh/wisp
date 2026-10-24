@@ -1,0 +1,13 @@
+{
+  "upstream": "https://crates.io/api/v1/crates/wasip2/1.0.3+wasi-0.2.9/download",
+  "archiveSha256": "20064672db26d7cdc89c7798c48a0fdfac8213434a1186e5ef29fd560ae223d6",
+  "files": {
+    "io.wit": "80957ac766c6b7eb743ce237a8f92700e1a0b007a1856794ef1972b61ddfce50",
+    "clocks.wit": "654a3b5e8b065202334de477828444dca099e576660b6a069c6aaf64685bf68f",
+    "filesystem.wit": "4065ba3e5d45ac9cdcfb4bbc31774424d24c453abccf1c9421414ff45f8459b9",
+    "cli.wit": "91aebf406712e618d037fa153b270476541d48d890b4ad6b111ec97b40d73194",
+    "random.wit": "4b3229e0ec18cc3fe71f824f855d9cf04809ec8a8d383f088671ca654f7fb885",
+    "sockets.wit": "d19af1d835606a576aace12d24a3699aa6f150e22084bb8d880e285c6257786c",
+    "http.wit": "873455584340b0e0aa801b842a72d86a67206825bf2d8fc6bca870da6e6ff8f6"
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "repository": "https://github.com/bendlang/bend",
+  "commit": "295e996574573e3a88827b1cf7045b437333c8f0",
+  "files": {
+    "bend2/bend.ts": {
+      "sha256": "22b5915cd7cccd23b6aa28849b23a7f1e3549333cdd0954ab48103ddd0777e9e",
+      "bytes": 138252
+    },
+    "bend2/comp.ts": {
+      "sha256": "efcd6a0c476849fce03faefd718e3058633b2a28ea34d45ca14fa383c726d0ef",
+      "bytes": 191137
+    },
+    "bend2/base.bend": {
+      "sha256": "3cd0b0944b11e15c4da5c9af2560e3c04f27d3d37027f1617899aeec17b499ce",
+      "bytes": 79477
+    },
+    "LICENSE": {
+      "sha256": "0beb288abd3d067e231f3fbe7df1f8ee37344061fc67f22018150a19e4b26c35",
+      "bytes": 11344
+    }
+  }
+}

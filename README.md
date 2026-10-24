@@ -1,0 +1,143 @@
+# Wisp
+
+**Compile source projects to WebAssembly Components and ship them as native
+libraries for other languages.**
+
+> [!WARNING]
+> Wisp is pre-alpha. Command-line interfaces, package formats and supported
+> targets may change between releases.
+
+Wisp takes a project written in one language, compiles it to a
+[WebAssembly Component](https://component-model.bytecodealliance.org/), and
+packages that Component so it can be installed from another language:
+
+- a **Rust crate**,
+- a **Node package** (server and browser),
+- an optional **Go module**, either native or Wasm,
+- a dependency for other **Component guests**.
+
+The compilers themselves run as Wasm, so the host does not need a native
+toolchain for each source language.
+
+## Features
+
+- **Many source languages.** `wisp build` compiles C/C++, Go, Rust, Zig,
+  AssemblyScript, Nim, JavaScript, TypeScript, Python, Grain, Bend 2, Goose,
+  Swift, Java and Kotlin with Wasm-hosted compilers.
+- **Generated APIs.** For Rust, Go and C++, public functions become the package
+  API, including scalars, strings, byte buffers, records and synchronous
+  results. Other languages use explicit typed exports or an adjacent
+  [WIT](https://component-model.bytecodealliance.org/design/wit.html) contract.
+- **Cross-language dependencies.** Wisp discovers Components carried by Go and
+  Rust dependencies, and generates C++ headers for installed packages. For
+  example, Go can import a C++ library, and Rust can import Go and C++.
+- **Validated releases.** Each build produces a release that can be validated
+  and published to local Cargo, npm, OCI or Go registries.
+
+## Installation
+
+Wisp is a Rust program with two executables: the `wisp` CLI and its execution
+worker. Build both from source; the first build needs network access.
+
+```sh
+git clone https://github.com/wisp-sh/wisp
+cd wisp
+cargo install --path crates/wisp --locked
+cargo install --path crates/wisp-worker --locked
+wisp --version
+```
+
+Keep `wisp` and `wisp-worker` on your `PATH` or in the same directory. Set
+`WISP_WORKER` to use a worker from another location.
+
+To compile source projects you also need the compiler bundles. Install them
+with `wisp toolchain install`, set up their shared runtimes with
+`wisp toolchain setup-hosts`, and check the result with `wisp toolchain doctor`.
+See [toolchain packages](docs/toolchain-packages.md) for details. There is no
+automatic public download catalog yet, so each bundle needs an explicit source
+or download location.
+
+## Quick start
+
+Inspect the bundled jq Component. This works without compiler bundles:
+
+```sh
+wisp inspect fixtures/jq/component.wasm
+```
+
+Build a project and validate the release:
+
+```sh
+wisp build path/to/project --out out/release
+wisp library validate out/release
+```
+
+Select the source language with `build.compiler` in the project's TOML
+configuration. See [project builds](docs/project-builds.md) for the
+configuration reference, tool paths and binding limits.
+
+To package an existing Component, its WIT and package metadata:
+
+```sh
+wisp library pack AUTHOR_DIR --out out/library-release \
+  --go-module example.org/team/library
+wisp library validate out/library-release
+```
+
+Omit `--go-module` if you don't need a Go module.
+
+## Examples
+
+| Example | What it shows |
+| --- | --- |
+| [build-rust](examples/build-rust/README.md) | Build a Rust library |
+| [build-go](examples/build-go) | Build a Go library |
+| [build-cpp](examples/build-cpp) | Build a C++ library |
+| [build-mixed](examples/build-mixed/README.md) | Build C++ and Go together |
+| [build-bend](examples/build-bend/README.md) | Build a Bend 2 program |
+| [go-import-wasm](examples/go-import-wasm/README.md) | Go importing a published C++ module, natively or as Wasm |
+| [go-import-rust](examples/go-import-rust/README.md) | Go importing Rust |
+| [cpp-import-go](examples/cpp-import-go/README.md) | C++ importing a Go package |
+| [cpp-import-rust](examples/cpp-import-rust/README.md) | C++ importing Rust |
+| [rust-import-wasm](examples/rust-import-wasm/README.md) | Rust importing Go and C++ |
+
+## Platform support
+
+Rust native packages target macOS ARM64 and Linux x86_64. The full list of
+consumer platforms, verified features and API limits is in the
+[target support matrix](docs/target-support.md) and the
+[language support matrix](https://github.com/wisp-sh/wisp-buildtools/blob/main/docs/language-support.md).
+
+## Documentation
+
+- [Project builds](docs/project-builds.md): configuration, source languages and binding limits
+- [Toolchain packages](docs/toolchain-packages.md): installing compiler bundles
+- [Component library packages](docs/component-library-packages.md): package layout, runtimes and admission
+- [Component dependencies](docs/component-dependencies.md): consuming Components from other packages
+- [Library publication](docs/library-publication.md): Cargo, npm, OCI and Go distribution
+- [Source compiler CI](docs/source-build-ci.md): acceptance setup for compilers
+- [Authored packages](docs/authored-packages.md): WIT and package metadata
+
+## Security and limitations
+
+Wisp is not production-hardened yet. In particular:
+
+- Guest execution has no fuel, deadline, memory or output quotas. Only run
+  trusted, bounded Components and inputs.
+- Admission checks identity, metadata and byte integrity. It does not prove
+  that uploaded wrappers are safe to install.
+- Publication has only been exercised against isolated local registries, not
+  public ones.
+- There is no account or owner verification, source attestation or TLS
+  service.
+
+## Contributing
+
+Bug reports and pull requests are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md)
+for development setup and the checks to run before submitting a change.
+
+## License
+
+Wisp is licensed under the [Apache License 2.0](LICENSE). Third-party
+notices for bundled components, such as jq and Oniguruma, are kept alongside
+those components.

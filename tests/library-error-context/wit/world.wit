@@ -1,0 +1,6 @@
+package wisp:context-values@0.1.0;
+interface errors {
+  create: func() -> error-context;
+  describe: func(value: error-context) -> string;
+}
+world library { export errors; }

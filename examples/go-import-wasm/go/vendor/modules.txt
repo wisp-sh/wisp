@@ -1,0 +1,50 @@
+# example.org/cpp-arithmetic v0.3.0
+## explicit; go 1.27.0
+example.org/cpp-arithmetic
+# github.com/wago-org/component-model v0.1.7-0.20261005115302-e43b64caa85b
+## explicit; go 1.22.0
+github.com/wago-org/component-model
+github.com/wago-org/component-model/internal/abi
+github.com/wago-org/component-model/internal/binary
+github.com/wago-org/component-model/internal/engine
+github.com/wago-org/component-model/internal/engine/expctxkeys
+github.com/wago-org/component-model/internal/engine/wasmruntime
+github.com/wago-org/component-model/internal/instance
+github.com/wago-org/component-model/internal/leb128
+# github.com/wago-org/wago v0.1.0-beta.13
+## explicit; go 1.22
+github.com/wago-org/wago
+github.com/wago-org/wago/codegen
+github.com/wago-org/wago/codegen/amd64
+github.com/wago-org/wago/codegen/arm64
+github.com/wago-org/wago/internal/functionworkers
+github.com/wago-org/wago/internal/jitprofile
+github.com/wago-org/wago/internal/jsonstrict
+github.com/wago-org/wago/internal/namecheck
+github.com/wago-org/wago/internal/regalloccheck
+github.com/wago-org/wago/internal/runtimebridge
+github.com/wago-org/wago/internal/wagopaths
+github.com/wago-org/wago/plugin
+github.com/wago-org/wago/src/core/codeimage
+github.com/wago-org/wago/src/core/compiler/backend/railshot
+github.com/wago-org/wago/src/core/compiler/backend/railshot/amd64
+github.com/wago-org/wago/src/core/compiler/backend/railshot/arm64
+github.com/wago-org/wago/src/core/compiler/backend/railshot/shared
+github.com/wago-org/wago/src/core/compiler/codegen
+github.com/wago-org/wago/src/core/compiler/frontend
+github.com/wago-org/wago/src/core/compiler/optimization
+github.com/wago-org/wago/src/core/compiler/wasm
+github.com/wago-org/wago/src/core/encoder/amd64
+github.com/wago-org/wago/src/core/encoder/arm64
+github.com/wago-org/wago/src/core/nativeabi
+github.com/wago-org/wago/src/core/plugins
+github.com/wago-org/wago/src/core/runtime
+github.com/wago-org/wago/src/core/runtime/abi
+github.com/wago-org/wago/src/core/runtime/gc/native
+github.com/wago-org/wago/src/core/runtime/hostthunk
+github.com/wago-org/wago/src/core/semver
+github.com/wago-org/wago/src/wago
+# golang.org/x/sys v0.30.0
+## explicit; go 1.18
+golang.org/x/sys/cpu
+golang.org/x/sys/unix

@@ -1,0 +1,8 @@
+package wisp:resolved-components;
+let node0 = new wisp:node0 {
+  ...
+};
+let node1 = new wisp:node1 {
+  "demo:go-arithmetic/api@0.1.0": node0["demo:go-arithmetic/api@0.1.0"],
+};
+export node1...;

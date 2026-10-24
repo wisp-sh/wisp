@@ -1,0 +1,16 @@
+[package]
+name = "rust-import-wasm"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies.go_arithmetic]
+package = "wisp-demo--go-arithmetic"
+version = "=0.1.0"
+path = "deps/go_arithmetic"
+
+[dependencies.cpp_arithmetic]
+package = "wisp-demo--cpp-math"
+version = "=0.1.0"
+path = "deps/cpp_arithmetic"
+
+[workspace]

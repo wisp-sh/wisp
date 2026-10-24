@@ -1,0 +1,96 @@
+package example:catalog@0.1.0;
+
+world storefront {
+  type sku = string;
+  type locale = string;
+  type quantity = u32;
+  type availability = bool;
+  type adjustment = s32;
+  type priority = u8;
+  type rank = u16;
+  type temperature = s8;
+  type pressure = s16;
+  type symbol = char;
+  type metric = f32;
+  type measurement = f64;
+  type serial = u64;
+  type signed-serial = s64;
+  record search-request {
+    term: string,
+    limit: u32,
+    include-disabled: bool,
+  }
+  enum delivery-speed {
+    standard,
+    next-day,
+    same-day,
+  }
+  flags access-modes {
+    read-only,
+    write,
+    execute,
+  }
+  variant lookup-key {
+    all,
+    sku(string),
+    quantity(u32),
+    enabled(bool),
+  }
+  type optional-sku = option<string>;
+  type optional-quantity = option<u32>;
+  type lookup-result = result<string, u32>;
+  type status-result = result<_, string>;
+  type quantity-result = result<u32>;
+  type strings = list<string>;
+  type u8s = list<u8>;
+  type u16s = list<u16>;
+  type u32s = list<u32>;
+  type u64s = list<u64>;
+  type s8s = list<s8>;
+  type s16s = list<s16>;
+  type s32s = list<s32>;
+  type s64s = list<s64>;
+  type f32s = list<f32>;
+  type f64s = list<f64>;
+  type bools = list<bool>;
+  type chars = list<char>;
+  type product-key = tuple<string, u32, bool, char, u64>;
+
+  export lookup: func(sku: sku, locale: locale) -> result<list<string>, string>;
+  export list-categories: func() -> result<list<string>, string>;
+  export stock-labels: func(count: quantity) -> result<list<string>, string>;
+  export availability-label: func(available: availability) -> result<list<string>, string>;
+  export adjustment-label: func(value: adjustment) -> result<list<string>, string>;
+  export priority-label: func(value: priority) -> result<list<string>, string>;
+  export rank-label: func(value: rank) -> result<list<string>, string>;
+  export temperature-label: func(value: temperature) -> result<list<string>, string>;
+  export pressure-label: func(value: pressure) -> result<list<string>, string>;
+  export character-label: func(value: symbol) -> result<list<string>, string>;
+  export metric-label: func(value: metric) -> result<list<string>, string>;
+  export measurement-label: func(value: measurement) -> result<list<string>, string>;
+  export serial-label: func(value: serial) -> result<list<string>, string>;
+  export signed-serial-label: func(value: signed-serial) -> result<list<string>, string>;
+  export search: func(request: search-request) -> result<list<string>, string>;
+  export delivery-label: func(speed: delivery-speed) -> result<list<string>, string>;
+  export access-label: func(modes: access-modes) -> result<list<string>, string>;
+  export lookup-by: func(key: lookup-key) -> result<list<string>, string>;
+  export optional-sku-label: func(value: optional-sku) -> result<list<string>, string>;
+  export optional-quantity-label: func(value: optional-quantity) -> result<list<string>, string>;
+  export result-label: func(value: lookup-result) -> result<list<string>, string>;
+  export status-label: func(value: status-result) -> result<list<string>, string>;
+  export quantity-result-label: func(value: quantity-result) -> result<list<string>, string>;
+  export accept-strings: func(values: strings) -> result<list<string>, string>;
+  export accept-u8s: func(values: u8s) -> result<list<string>, string>;
+  export accept-u16s: func(values: u16s) -> result<list<string>, string>;
+  export accept-u32s: func(values: u32s) -> result<list<string>, string>;
+  export accept-u64s: func(values: u64s) -> result<list<string>, string>;
+  export accept-s8s: func(values: s8s) -> result<list<string>, string>;
+  export accept-s16s: func(values: s16s) -> result<list<string>, string>;
+  export accept-s32s: func(values: s32s) -> result<list<string>, string>;
+  export accept-s64s: func(values: s64s) -> result<list<string>, string>;
+  export accept-f32s: func(values: f32s) -> result<list<string>, string>;
+  export accept-f64s: func(values: f64s) -> result<list<string>, string>;
+  export accept-bools: func(values: bools) -> result<list<string>, string>;
+  export accept-chars: func(values: chars) -> result<list<string>, string>;
+  export accept-product-key: func(value: product-key) -> result<list<string>, string>;
+}

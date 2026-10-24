@@ -1,0 +1,32 @@
+name: Prepare Wisp package runtime
+description: Build the pinned CLI and worker and install locked library generators without publishing credentials
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: |
+        sudo apt-get update
+        sudo apt-get install --no-install-recommends --yes build-essential cmake libclang-dev pkg-config
+    - shell: bash
+      env:
+        WISP_ACTION_ROOT: ${{ github.action_path }}/../../..
+      run: |
+        cd "$WISP_ACTION_ROOT"
+        python3 tests/library-chain/setup.py 2>&1 | tee "$RUNNER_TEMP/wisp-package-runtime.log"
+        RUSTUP_TOOLCHAIN=1.98.1 cargo build --locked --offline -p wisp -p wisp-worker --jobs 2 2>&1 | tee -a "$RUNNER_TEMP/wisp-package-runtime.log"
+        python3 - <<'PY'
+        import os
+        from pathlib import Path
+        root = Path(os.environ['WISP_ACTION_ROOT']).resolve()
+        with Path(os.environ['GITHUB_ENV']).open('a') as output:
+            for name, value in {
+                'WISP_ROOT': root,
+                'WISP_CLI': root / 'target/debug/wisp',
+                'WISP_WORKER': root / 'target/debug/wisp-worker',
+                'WISP_NODE': root / '.tools/library-chain-node/node/bin/node',
+                'WISP_JCO': root / '.tools/library-js/node_modules/.bin/jco',
+            }.items():
+                output.write(f'{name}={value}\n')
+        with Path(os.environ['GITHUB_PATH']).open('a') as output:
+            output.write(str(root / '.tools/library-chain-node/node/bin') + '\n')
+        PY

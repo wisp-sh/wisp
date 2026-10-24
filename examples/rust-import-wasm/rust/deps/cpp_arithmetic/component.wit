@@ -1,0 +1,14 @@
+package root:component;
+
+world root {
+  export demo:cpp-math/api@0.1.0;
+}
+package demo:cpp-math@0.1.0 {
+  interface api {
+    add: func(a0: u32, a1: u32) -> u32;
+
+    negate: func(a0: bool) -> bool;
+
+    widen: func(a0: u64) -> u64;
+  }
+}

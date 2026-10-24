@@ -1,0 +1,8 @@
+# Identity comes from wit/world.wit. The binary is rebuilt from component.wat.
+[package]
+name = "example:catalog"
+version = "0.1.0"
+
+[component]
+path = "component.wasm"
+sha256 = "820de43ea6139cc43422f9e1a2e0bfd8909613cad1a1fe009a3a7e6214f6a0c0"

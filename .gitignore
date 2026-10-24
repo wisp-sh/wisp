@@ -1,0 +1,17 @@
+.venv/
+.tools/
+.downloads/
+__pycache__/
+build/
+dist/
+target/
+out/
+evidence/
+tmp/
+fixtures/jq/tools/
+fixtures/jq/downloads/
+fixtures/jq/build/
+fixtures/jq/tmp/
+.wisp-cache/
+.env*
+!.env.example

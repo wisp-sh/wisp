@@ -1,0 +1,7 @@
+[package]
+name = "demo:go-values"
+version = "0.1.0"
+
+[build]
+compiler = "go"
+project = "."

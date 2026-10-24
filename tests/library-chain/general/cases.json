@@ -1,0 +1,21 @@
+[
+  {
+    "call": "process({items: [{name: \"book\", amount: 2, tags: [\"a\", \"b\"]}, {name: \"pen\", amount: 5, tags: []}], label: some(\"order\"), policy: {gift, priority}, metadata: (7, \"meta\"), detail: numbers([1, 2])})",
+    "expected": "ok({summary: \"order:book\", counts: [2, 5], first: some({name: \"book\", amount: 2, tags: [\"a\", \"b\"]}), policy: {gift, priority}, metadata: (7, \"meta\"), detail: numbers([1, 2])})"
+  },
+  {
+    "call": "process({items: [], label: none, policy: {}, metadata: (0, \"\"), detail: text(\"x\")})",
+    "expected": "err(empty)"
+  },
+  {
+    "call": "process({items: [{name: \"bad\", amount: 0, tags: []}], label: none, policy: {}, metadata: (0, \"\"), detail: text(\"x\")})",
+    "expected": "err(invalid(\"bad\"))"
+  },
+  {
+    "call": "echo({summary: \"echo\", counts: [3], first: none, policy: {gift}, metadata: (4, \"p\"), detail: text(\"done\")})",
+    "expected": "{summary: \"echo\", counts: [3], policy: {gift}, metadata: (4, \"p\"), detail: text(\"done\")}"
+  },
+  {"call": "greet(\"world\")", "expected": "\"hello world\""},
+  {"call": "count([\"a\", \"b\"])", "expected": "2"},
+  {"call": "shared-state()", "expected": "2", "composed_only": true}
+]

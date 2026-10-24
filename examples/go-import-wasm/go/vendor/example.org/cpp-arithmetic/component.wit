@@ -1,0 +1,10 @@
+package root:component;
+
+world root {
+  export demo:cpp-arithmetic/api@0.3.0;
+}
+package demo:cpp-arithmetic@0.3.0 {
+  interface api {
+    add: func(a0: u32, a1: u32) -> u32;
+  }
+}

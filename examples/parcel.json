@@ -1,0 +1,15 @@
+{
+  "schema": 1,
+  "owner": "lab",
+  "project": "parcel",
+  "version": "0.1.0",
+  "sha256": "6e7b0942d26d2705a862b17a2ab4b3e13f1a28924f4cd8c0dfbe91124807041e",
+  "targets": [
+    "rust",
+    "go",
+    "node",
+    "browser"
+  ],
+  "imports": [],
+  "grants": []
+}

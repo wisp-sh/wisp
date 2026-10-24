@@ -1,0 +1,763 @@
+{
+  "componentSha256": "e4814cd0e8fc996faa70b9e15330dc3755f2da45cde328fe770b1886a2f31829",
+  "contract": {
+    "exports": [
+      {
+        "functions": [
+          {
+            "async": "sync",
+            "itemName": "add",
+            "kind": "freestanding",
+            "name": "add",
+            "params": [
+              [
+                "a0",
+                "u32"
+              ],
+              [
+                "a1",
+                "u32"
+              ]
+            ],
+            "result": "u32"
+          },
+          {
+            "async": "sync",
+            "itemName": "negate",
+            "kind": "freestanding",
+            "name": "negate",
+            "params": [
+              [
+                "a0",
+                "bool"
+              ]
+            ],
+            "result": "bool"
+          },
+          {
+            "async": "sync",
+            "itemName": "widen",
+            "kind": "freestanding",
+            "name": "widen",
+            "params": [
+              [
+                "a0",
+                "u64"
+              ]
+            ],
+            "result": "u64"
+          }
+        ],
+        "imported": false,
+        "name": "api",
+        "package": "demo:rust-math@0.1.0",
+        "types": []
+      }
+    ],
+    "imports": [
+      {
+        "functions": [
+          {
+            "async": "sync",
+            "itemName": "get-environment",
+            "kind": "freestanding",
+            "name": "get-environment",
+            "params": [],
+            "result": {
+              "list": {
+                "tuple": [
+                  "string",
+                  "string"
+                ]
+              }
+            }
+          }
+        ],
+        "imported": true,
+        "name": "environment",
+        "package": "wasi:cli@0.2.12",
+        "types": []
+      },
+      {
+        "functions": [
+          {
+            "async": "sync",
+            "itemName": "exit",
+            "kind": "freestanding",
+            "name": "exit",
+            "params": [
+              [
+                "status",
+                {
+                  "result": {
+                    "err": null,
+                    "ok": null
+                  }
+                }
+              ]
+            ],
+            "result": null
+          }
+        ],
+        "imported": true,
+        "name": "exit",
+        "package": "wasi:cli@0.2.12",
+        "types": []
+      },
+      {
+        "functions": [],
+        "imported": true,
+        "name": "error",
+        "package": "wasi:io@0.2.12",
+        "types": [
+          {
+            "name": "error",
+            "type": "resource"
+          }
+        ]
+      },
+      {
+        "functions": [
+          {
+            "async": "sync",
+            "itemName": "check-write",
+            "kind": "method",
+            "name": "[method]output-stream.check-write",
+            "ownerResource": "output-stream",
+            "params": [
+              [
+                "self",
+                {
+                  "borrow": "output-stream"
+                }
+              ]
+            ],
+            "result": {
+              "result": {
+                "err": {
+                  "named": "stream-error"
+                },
+                "ok": "u64"
+              }
+            }
+          },
+          {
+            "async": "sync",
+            "itemName": "write",
+            "kind": "method",
+            "name": "[method]output-stream.write",
+            "ownerResource": "output-stream",
+            "params": [
+              [
+                "self",
+                {
+                  "borrow": "output-stream"
+                }
+              ],
+              [
+                "contents",
+                {
+                  "list": "u8"
+                }
+              ]
+            ],
+            "result": {
+              "result": {
+                "err": {
+                  "named": "stream-error"
+                },
+                "ok": null
+              }
+            }
+          },
+          {
+            "async": "sync",
+            "itemName": "blocking-write-and-flush",
+            "kind": "method",
+            "name": "[method]output-stream.blocking-write-and-flush",
+            "ownerResource": "output-stream",
+            "params": [
+              [
+                "self",
+                {
+                  "borrow": "output-stream"
+                }
+              ],
+              [
+                "contents",
+                {
+                  "list": "u8"
+                }
+              ]
+            ],
+            "result": {
+              "result": {
+                "err": {
+                  "named": "stream-error"
+                },
+                "ok": null
+              }
+            }
+          },
+          {
+            "async": "sync",
+            "itemName": "blocking-flush",
+            "kind": "method",
+            "name": "[method]output-stream.blocking-flush",
+            "ownerResource": "output-stream",
+            "params": [
+              [
+                "self",
+                {
+                  "borrow": "output-stream"
+                }
+              ]
+            ],
+            "result": {
+              "result": {
+                "err": {
+                  "named": "stream-error"
+                },
+                "ok": null
+              }
+            }
+          }
+        ],
+        "imported": true,
+        "name": "streams",
+        "package": "wasi:io@0.2.12",
+        "types": [
+          {
+            "name": "error",
+            "type": {
+              "named": "error"
+            }
+          },
+          {
+            "name": "output-stream",
+            "type": "resource"
+          },
+          {
+            "name": "stream-error",
+            "type": {
+              "variant": [
+                [
+                  "last-operation-failed",
+                  {
+                    "own": "error"
+                  }
+                ],
+                [
+                  "closed",
+                  null
+                ]
+              ]
+            }
+          },
+          {
+            "name": "input-stream",
+            "type": "resource"
+          }
+        ]
+      },
+      {
+        "functions": [
+          {
+            "async": "sync",
+            "itemName": "get-stdin",
+            "kind": "freestanding",
+            "name": "get-stdin",
+            "params": [],
+            "result": {
+              "own": "input-stream"
+            }
+          }
+        ],
+        "imported": true,
+        "name": "stdin",
+        "package": "wasi:cli@0.2.12",
+        "types": [
+          {
+            "name": "input-stream",
+            "type": {
+              "named": "input-stream"
+            }
+          }
+        ]
+      },
+      {
+        "functions": [
+          {
+            "async": "sync",
+            "itemName": "get-stdout",
+            "kind": "freestanding",
+            "name": "get-stdout",
+            "params": [],
+            "result": {
+              "own": "output-stream"
+            }
+          }
+        ],
+        "imported": true,
+        "name": "stdout",
+        "package": "wasi:cli@0.2.12",
+        "types": [
+          {
+            "name": "output-stream",
+            "type": {
+              "named": "output-stream"
+            }
+          }
+        ]
+      },
+      {
+        "functions": [
+          {
+            "async": "sync",
+            "itemName": "get-stderr",
+            "kind": "freestanding",
+            "name": "get-stderr",
+            "params": [],
+            "result": {
+              "own": "output-stream"
+            }
+          }
+        ],
+        "imported": true,
+        "name": "stderr",
+        "package": "wasi:cli@0.2.12",
+        "types": [
+          {
+            "name": "output-stream",
+            "type": {
+              "named": "output-stream"
+            }
+          }
+        ]
+      },
+      {
+        "functions": [],
+        "imported": true,
+        "name": "wall-clock",
+        "package": "wasi:clocks@0.2.12",
+        "types": [
+          {
+            "name": "datetime",
+            "type": {
+              "record": [
+                [
+                  "seconds",
+                  "u64"
+                ],
+                [
+                  "nanoseconds",
+                  "u32"
+                ]
+              ]
+            }
+          }
+        ]
+      },
+      {
+        "functions": [
+          {
+            "async": "sync",
+            "itemName": "write-via-stream",
+            "kind": "method",
+            "name": "[method]descriptor.write-via-stream",
+            "ownerResource": "descriptor",
+            "params": [
+              [
+                "self",
+                {
+                  "borrow": "descriptor"
+                }
+              ],
+              [
+                "offset",
+                {
+                  "named": "filesize"
+                }
+              ]
+            ],
+            "result": {
+              "result": {
+                "err": {
+                  "named": "error-code"
+                },
+                "ok": {
+                  "own": "output-stream"
+                }
+              }
+            }
+          },
+          {
+            "async": "sync",
+            "itemName": "append-via-stream",
+            "kind": "method",
+            "name": "[method]descriptor.append-via-stream",
+            "ownerResource": "descriptor",
+            "params": [
+              [
+                "self",
+                {
+                  "borrow": "descriptor"
+                }
+              ]
+            ],
+            "result": {
+              "result": {
+                "err": {
+                  "named": "error-code"
+                },
+                "ok": {
+                  "own": "output-stream"
+                }
+              }
+            }
+          },
+          {
+            "async": "sync",
+            "itemName": "get-type",
+            "kind": "method",
+            "name": "[method]descriptor.get-type",
+            "ownerResource": "descriptor",
+            "params": [
+              [
+                "self",
+                {
+                  "borrow": "descriptor"
+                }
+              ]
+            ],
+            "result": {
+              "result": {
+                "err": {
+                  "named": "error-code"
+                },
+                "ok": {
+                  "named": "descriptor-type"
+                }
+              }
+            }
+          },
+          {
+            "async": "sync",
+            "itemName": "stat",
+            "kind": "method",
+            "name": "[method]descriptor.stat",
+            "ownerResource": "descriptor",
+            "params": [
+              [
+                "self",
+                {
+                  "borrow": "descriptor"
+                }
+              ]
+            ],
+            "result": {
+              "result": {
+                "err": {
+                  "named": "error-code"
+                },
+                "ok": {
+                  "named": "descriptor-stat"
+                }
+              }
+            }
+          },
+          {
+            "async": "sync",
+            "itemName": "filesystem-error-code",
+            "kind": "freestanding",
+            "name": "filesystem-error-code",
+            "params": [
+              [
+                "err",
+                {
+                  "borrow": "error"
+                }
+              ]
+            ],
+            "result": {
+              "option": {
+                "named": "error-code"
+              }
+            }
+          }
+        ],
+        "imported": true,
+        "name": "types",
+        "package": "wasi:filesystem@0.2.12",
+        "types": [
+          {
+            "name": "error",
+            "type": {
+              "named": "error"
+            }
+          },
+          {
+            "name": "error-code",
+            "type": {
+              "enum": [
+                "access",
+                "would-block",
+                "already",
+                "bad-descriptor",
+                "busy",
+                "deadlock",
+                "quota",
+                "exist",
+                "file-too-large",
+                "illegal-byte-sequence",
+                "in-progress",
+                "interrupted",
+                "invalid",
+                "io",
+                "is-directory",
+                "loop",
+                "too-many-links",
+                "message-size",
+                "name-too-long",
+                "no-device",
+                "no-entry",
+                "no-lock",
+                "insufficient-memory",
+                "insufficient-space",
+                "not-directory",
+                "not-empty",
+                "not-recoverable",
+                "unsupported",
+                "no-tty",
+                "no-such-device",
+                "overflow",
+                "not-permitted",
+                "pipe",
+                "read-only",
+                "invalid-seek",
+                "text-file-busy",
+                "cross-device"
+              ]
+            }
+          },
+          {
+            "name": "descriptor",
+            "type": "resource"
+          },
+          {
+            "name": "descriptor-type",
+            "type": {
+              "enum": [
+                "unknown",
+                "block-device",
+                "character-device",
+                "directory",
+                "fifo",
+                "symbolic-link",
+                "regular-file",
+                "socket"
+              ]
+            }
+          },
+          {
+            "name": "output-stream",
+            "type": {
+              "named": "output-stream"
+            }
+          },
+          {
+            "name": "filesize",
+            "type": "u64"
+          },
+          {
+            "name": "link-count",
+            "type": "u64"
+          },
+          {
+            "name": "datetime",
+            "type": {
+              "named": "datetime"
+            }
+          },
+          {
+            "name": "descriptor-stat",
+            "type": {
+              "record": [
+                [
+                  "type",
+                  {
+                    "named": "descriptor-type"
+                  }
+                ],
+                [
+                  "link-count",
+                  {
+                    "named": "link-count"
+                  }
+                ],
+                [
+                  "size",
+                  {
+                    "named": "filesize"
+                  }
+                ],
+                [
+                  "data-access-timestamp",
+                  {
+                    "option": {
+                      "named": "datetime"
+                    }
+                  }
+                ],
+                [
+                  "data-modification-timestamp",
+                  {
+                    "option": {
+                      "named": "datetime"
+                    }
+                  }
+                ],
+                [
+                  "status-change-timestamp",
+                  {
+                    "option": {
+                      "named": "datetime"
+                    }
+                  }
+                ]
+              ]
+            }
+          }
+        ]
+      },
+      {
+        "functions": [
+          {
+            "async": "sync",
+            "itemName": "get-directories",
+            "kind": "freestanding",
+            "name": "get-directories",
+            "params": [],
+            "result": {
+              "list": {
+                "tuple": [
+                  {
+                    "own": "descriptor"
+                  },
+                  "string"
+                ]
+              }
+            }
+          }
+        ],
+        "imported": true,
+        "name": "preopens",
+        "package": "wasi:filesystem@0.2.12",
+        "types": [
+          {
+            "name": "descriptor",
+            "type": {
+              "named": "descriptor"
+            }
+          }
+        ]
+      }
+    ],
+    "package": "root:component",
+    "schema": 1,
+    "world": "root"
+  },
+  "identity": "demo:rust-math",
+  "kind": "component-library",
+  "metadata": {
+    "authors": [],
+    "description": "Ordinary Rust arithmetic compiled by a Rust compiler running in Wasm",
+    "homepage": null,
+    "license": "MIT",
+    "notices": {
+      "Rust-COPYRIGHT-RUST.txt": "Short version for non-lawyers:\n\nThe Rust Project is dual-licensed under Apache 2.0 and MIT\nterms.\n\n\nLonger version:\n\nCopyrights in the Rust project are retained by their contributors. No\ncopyright assignment is required to contribute to the Rust project.\n\nSome files include explicit copyright notices and/or license notices.\nFor full authorship information, see the version control history or\nhttps://thanks.rust-lang.org\n\nExcept as otherwise noted (below and/or in individual files), Rust is\nlicensed under the Apache License, Version 2.0 <LICENSE-APACHE> or\n<http://www.apache.org/licenses/LICENSE-2.0> or the MIT license\n<LICENSE-MIT> or <http://opensource.org/licenses/MIT>, at your option.\n\n\nThe Rust Project includes packages written by third parties.\nThe following third party packages are included, and carry\ntheir own copyright notices and license terms:\n\n* LLVM, located in src/llvm-project, is licensed under the following\n  terms.\n\n    ==============================================================================\n    The LLVM Project is under the Apache License v2.0 with LLVM Exceptions:\n    ==============================================================================\n\n                                    Apache License\n                              Version 2.0, January 2004\n                            http://www.apache.org/licenses/\n\n        TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION\n\n        1. Definitions.\n\n          \"License\" shall mean the terms and conditions for use, reproduction,\n          and distribution as defined by Sections 1 through 9 of this document.\n\n          \"Licensor\" shall mean the copyright owner or entity authorized by\n          the copyright owner that is granting the License.\n\n          \"Legal Entity\" shall mean the union of the acting entity and all\n          other entities that control, are controlled by, or are under common\n          control with that entity. For the purposes of this definition,\n          \"control\" means (i) the power, direct or indirect, to cause the\n          direction or management of such entity, whether by contract or\n          otherwise, or (ii) ownership of fifty percent (50%) or more of the\n          outstanding shares, or (iii) beneficial ownership of such entity.\n\n          \"You\" (or \"Your\") shall mean an individual or Legal Entity\n          exercising permissions granted by this License.\n\n          \"Source\" form shall mean the preferred form for making modifications,\n          including but not limited to software source code, documentation\n          source, and configuration files.\n\n          \"Object\" form shall mean any form resulting from mechanical\n          transformation or translation of a Source form, including but\n          not limited to compiled object code, generated documentation,\n          and conversions to other media types.\n\n          \"Work\" shall mean the work of authorship, whether in Source or\n          Object form, made available under the License, as indicated by a\n          copyright notice that is included in or attached to the work\n          (an example is provided in the Appendix below).\n\n          \"Derivative Works\" shall mean any work, whether in Source or Object\n          form, that is based on (or derived from) the Work and for which the\n          editorial revisions, annotations, elaborations, or other modifications\n          represent, as a whole, an original work of authorship. For the purposes\n          of this License, Derivative Works shall not include works that remain\n          separable from, or merely link (or bind by name) to the interfaces of,\n          the Work and Derivative Works thereof.\n\n          \"Contribution\" shall mean any work of authorship, including\n          the original version of the Work and any modifications or additions\n          to that Work or Derivative Works thereof, that is intentionally\n          submitted to Licensor for inclusion in the Work by the copyright owner\n          or by an individual or Legal Entity authorized to submit on behalf of\n          the copyright owner. For the purposes of this definition, \"submitted\"\n          means any form of electronic, verbal, or written communication sent\n          to the Licensor or its representatives, including but not limited to\n          communication on electronic mailing lists, source code control systems,\n          and issue tracking systems that are managed by, or on behalf of, the\n          Licensor for the purpose of discussing and improving the Work, but\n          excluding communication that is conspicuously marked or otherwise\n          designated in writing by the copyright owner as \"Not a Contribution.\"\n\n          \"Contributor\" shall mean Licensor and any individual or Legal Entity\n          on behalf of whom a Contribution has been received by Licensor and\n          subsequently incorporated within the Work.\n\n        2. Grant of Copyright License. Subject to the terms and conditions of\n          this License, each Contributor hereby grants to You a perpetual,\n          worldwide, non-exclusive, no-charge, royalty-free, irrevocable\n          copyright license to reproduce, prepare Derivative Works of,\n          publicly display, publicly perform, sublicense, and distribute the\n          Work and such Derivative Works in Source or Object form.\n\n        3. Grant of Patent License. Subject to the terms and conditions of\n          this License, each Contributor hereby grants to You a perpetual,\n          worldwide, non-exclusive, no-charge, royalty-free, irrevocable\n          (except as stated in this section) patent license to make, have made,\n          use, offer to sell, sell, import, and otherwise transfer the Work,\n          where such license applies only to those patent claims licensable\n          by such Contributor that are necessarily infringed by their\n          Contribution(s) alone or by combination of their Contribution(s)\n          with the Work to which such Contribution(s) was submitted. If You\n          institute patent litigation against any entity (including a\n          cross-claim or counterclaim in a lawsuit) alleging that the Work\n          or a Contribution incorporated within the Work constitutes direct\n          or contributory patent infringement, then any patent licenses\n          granted to You under this License for that Work shall terminate\n          as of the date such litigation is filed.\n\n        4. Redistribution. You may reproduce and distribute copies of the\n          Work or Derivative Works thereof in any medium, with or without\n          modifications, and in Source or Object form, provided that You\n          meet the following conditions:\n\n          (a) You must give any other recipients of the Work or\n              Derivative Works a copy of this License; and\n\n          (b) You must cause any modified files to carry prominent notices\n              stating that You changed the files; and\n\n          (c) You must retain, in the Source form of any Derivative Works\n              that You distribute, all copyright, patent, trademark, and\n              attribution notices from the Source form of the Work,\n              excluding those notices that do not pertain to any part of\n              the Derivative Works; and\n\n          (d) If the Work includes a \"NOTICE\" text file as part of its\n              distribution, then any Derivative Works that You distribute must\n              include a readable copy of the attribution notices contained\n              within such NOTICE file, excluding those notices that do not\n              pertain to any part of the Derivative Works, in at least one\n              of the following places: within a NOTICE text file distributed\n              as part of the Derivative Works; within the Source form or\n              documentation, if provided along with the Derivative Works; or,\n              within a display generated by the Derivative Works, if and\n              wherever such third-party notices normally appear. The contents\n              of the NOTICE file are for informational purposes only and\n              do not modify the License. You may add Your own attribution\n              notices within Derivative Works that You distribute, alongside\n              or as an addendum to the NOTICE text from the Work, provided\n              that such additional attribution notices cannot be construed\n              as modifying the License.\n\n          You may add Your own copyright statement to Your modifications and\n          may provide additional or different license terms and conditions\n          for use, reproduction, or distribution of Your modifications, or\n          for any such Derivative Works as a whole, provided Your use,\n          reproduction, and distribution of the Work otherwise complies with\n          the conditions stated in this License.\n\n        5. Submission of Contributions. Unless You explicitly state otherwise,\n          any Contribution intentionally submitted for inclusion in the Work\n          by You to the Licensor shall be under the terms and conditions of\n          this License, without any additional terms or conditions.\n          Notwithstanding the above, nothing herein shall supersede or modify\n          the terms of any separate license agreement you may have executed\n          with Licensor regarding such Contributions.\n\n        6. Trademarks. This License does not grant permission to use the trade\n          names, trademarks, service marks, or product names of the Licensor,\n          except as required for reasonable and customary use in describing the\n          origin of the Work and reproducing the content of the NOTICE file.\n\n        7. Disclaimer of Warranty. Unless required by applicable law or\n          agreed to in writing, Licensor provides the Work (and each\n          Contributor provides its Contributions) on an \"AS IS\" BASIS,\n          WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or\n          implied, including, without limitation, any warranties or conditions\n          of TITLE, NON-INFRINGEMENT, MERCHANTABILITY, or FITNESS FOR A\n          PARTICULAR PURPOSE. You are solely responsible for determining the\n          appropriateness of using or redistributing the Work and assume any\n          risks associated with Your exercise of permissions under this License.\n\n        8. Limitation of Liability. In no event and under no legal theory,\n          whether in tort (including negligence), contract, or otherwise,\n          unless required by applicable law (such as deliberate and grossly\n          negligent acts) or agreed to in writing, shall any Contributor be\n          liable to You for damages, including any direct, indirect, special,\n          incidental, or consequential damages of any character arising as a\n          result of this License or out of the use or inability to use the\n          Work (including but not limited to damages for loss of goodwill,\n          work stoppage, computer failure or malfunction, or any and all\n          other commercial damages or losses), even if such Contributor\n          has been advised of the possibility of such damages.\n\n        9. Accepting Warranty or Additional Liability. While redistributing\n          the Work or Derivative Works thereof, You may choose to offer,\n          and charge a fee for, acceptance of support, warranty, indemnity,\n          or other liability obligations and/or rights consistent with this\n          License. However, in accepting such obligations, You may act only\n          on Your own behalf and on Your sole responsibility, not on behalf\n          of any other Contributor, and only if You agree to indemnify,\n          defend, and hold each Contributor harmless for any liability\n          incurred by, or claims asserted against, such Contributor by reason\n          of your accepting any such warranty or additional liability.\n\n        END OF TERMS AND CONDITIONS\n\n        APPENDIX: How to apply the Apache License to your work.\n\n          To apply the Apache License to your work, attach the following\n          boilerplate notice, with the fields enclosed by brackets \"[]\"\n          replaced with your own identifying information. (Don't include\n          the brackets!)  The text should be enclosed in the appropriate\n          comment syntax for the file format. We also recommend that a\n          file or class name and description of purpose be included on the\n          same \"printed page\" as the copyright notice for easier\n          identification within third-party archives.\n\n        Copyright [yyyy] [name of copyright owner]\n\n        Licensed under the Apache License, Version 2.0 (the \"License\");\n        you may not use this file except in compliance with the License.\n        You may obtain a copy of the License at\n\n          http://www.apache.org/licenses/LICENSE-2.0\n\n        Unless required by applicable law or agreed to in writing, software\n        distributed under the License is distributed on an \"AS IS\" BASIS,\n        WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.\n        See the License for the specific language governing permissions and\n        limitations under the License.\n\n\n    ---- LLVM Exceptions to the Apache 2.0 License ----\n\n    As an exception, if, as a result of your compiling your source code, portions\n    of this Software are embedded into an Object form of such source code, you\n    may redistribute such embedded portions in such Object form without complying\n    with the conditions of Sections 4(a), 4(b) and 4(d) of the License.\n\n    In addition, if you combine or link compiled forms of this Software with\n    software that is licensed under the GPLv2 (\"Combined Software\") and if a\n    court of competent jurisdiction determines that the patent provision (Section\n    3), the indemnity provision (Section 9) or other Section of the License\n    conflicts with the conditions of the GPLv2, you may retroactively and\n    prospectively choose to deem waived or otherwise exclude such Section(s) of\n    the License, but only in their entirety and only with respect to the Combined\n    Software.\n\n    ==============================================================================\n    Software from third parties included in the LLVM Project:\n    ==============================================================================\n    The LLVM Project contains third party software which is under different license\n    terms. All such code will be identified clearly using at least one of two\n    mechanisms:\n    1) It will be in a separate directory tree with its own `LICENSE.txt` or\n      `LICENSE` file at the top containing the specific license and restrictions\n      which apply to that software, or\n    2) It will contain specific license and restriction terms at the top of every\n      file.\n\n    ==============================================================================\n    Legacy LLVM License (https://llvm.org/docs/DeveloperPolicy.html#legacy):\n    ==============================================================================\n    University of Illinois/NCSA\n    Open Source License\n\n    Copyright (c) 2003-2019 University of Illinois at Urbana-Champaign.\n    All rights reserved.\n\n    Developed by:\n\n        LLVM Team\n\n        University of Illinois at Urbana-Champaign\n\n        http://llvm.org\n\n    Permission is hereby granted, free of charge, to any person obtaining a copy of\n    this software and associated documentation files (the \"Software\"), to deal with\n    the Software without restriction, including without limitation the rights to\n    use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies\n    of the Software, and to permit persons to whom the Software is furnished to do\n    so, subject to the following conditions:\n\n        * Redistributions of source code must retain the above copyright notice,\n          this list of conditions and the following disclaimers.\n\n        * Redistributions in binary form must reproduce the above copyright notice,\n          this list of conditions and the following disclaimers in the\n          documentation and/or other materials provided with the distribution.\n\n        * Neither the names of the LLVM Team, University of Illinois at\n          Urbana-Champaign, nor the names of its contributors may be used to\n          endorse or promote products derived from this Software without specific\n          prior written permission.\n\n    THE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\n    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS\n    FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL THE\n    CONTRIBUTORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\n    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\n    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS WITH THE\n    SOFTWARE.\n\n* Portions of the FFI code for interacting with the native ABI\n  is derived from the Clay programming language, which carries\n  the following license.\n\n    Copyright (C) 2008-2010 Tachyon Technologies.\n    All rights reserved.\n\n    Redistribution and use in source and binary forms, with\n    or without modification, are permitted provided that the\n    following conditions are met:\n\n    1. Redistributions of source code must retain the above\n       copyright notice, this list of conditions and the\n       following disclaimer.\n\n    2. Redistributions in binary form must reproduce the\n       above copyright notice, this list of conditions and\n       the following disclaimer in the documentation and/or\n       other materials provided with the distribution.\n\n    THIS SOFTWARE IS PROVIDED ``AS IS'' AND ANY EXPRESS OR\n    IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE\n    IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A\n    PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE\n    DEVELOPERS AND CONTRIBUTORS BE LIABLE FOR ANY DIRECT,\n    INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR\n    CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,\n    PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF\n    USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER\n    CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN\n    CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING\n    NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE\n    USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY\n    OF SUCH DAMAGE.\n\n* Portions of internationalization code use code or data from Unicode, which\n  carry the following license:\n\n      UNICODE, INC. LICENSE AGREEMENT - DATA FILES AND SOFTWARE\n\n    See Terms of Use <https://www.unicode.org/copyright.html>\n    for definitions of Unicode Inc.’s Data Files and Software.\n\n    NOTICE TO USER: Carefully read the following legal agreement.\n    BY DOWNLOADING, INSTALLING, COPYING OR OTHERWISE USING UNICODE INC.'S\n    DATA FILES (\"DATA FILES\"), AND/OR SOFTWARE (\"SOFTWARE\"),\n    YOU UNEQUIVOCALLY ACCEPT, AND AGREE TO BE BOUND BY, ALL OF THE\n    TERMS AND CONDITIONS OF THIS AGREEMENT.\n    IF YOU DO NOT AGREE, DO NOT DOWNLOAD, INSTALL, COPY, DISTRIBUTE OR USE\n    THE DATA FILES OR SOFTWARE.\n\n    COPYRIGHT AND PERMISSION NOTICE\n\n    Copyright © 1991-2022 Unicode, Inc. All rights reserved.\n    Distributed under the Terms of Use in https://www.unicode.org/copyright.html.\n\n    Permission is hereby granted, free of charge, to any person obtaining\n    a copy of the Unicode data files and any associated documentation\n    (the \"Data Files\") or Unicode software and any associated documentation\n    (the \"Software\") to deal in the Data Files or Software\n    without restriction, including without limitation the rights to use,\n    copy, modify, merge, publish, distribute, and/or sell copies of\n    the Data Files or Software, and to permit persons to whom the Data Files\n    or Software are furnished to do so, provided that either\n    (a) this copyright and permission notice appear with all copies\n    of the Data Files or Software, or\n    (b) this copyright and permission notice appear in associated\n    Documentation.\n\n    THE DATA FILES AND SOFTWARE ARE PROVIDED \"AS IS\", WITHOUT WARRANTY OF\n    ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE\n    WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND\n    NONINFRINGEMENT OF THIRD PARTY RIGHTS.\n    IN NO EVENT SHALL THE COPYRIGHT HOLDER OR HOLDERS INCLUDED IN THIS\n    NOTICE BE LIABLE FOR ANY CLAIM, OR ANY SPECIAL INDIRECT OR CONSEQUENTIAL\n    DAMAGES, OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE,\n    DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER\n    TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR\n    PERFORMANCE OF THE DATA FILES OR SOFTWARE.\n\n    Except as contained in this notice, the name of a copyright holder\n    shall not be used in advertising or otherwise to promote the sale,\n    use or other dealings in these Data Files or Software without prior\n    written authorization of the copyright holder.\n",
+      "Rust-LICENSE-APACHE.txt": "                              Apache License\n                        Version 2.0, January 2004\n                     http://www.apache.org/licenses/\n\nTERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION\n\n1. Definitions.\n\n   \"License\" shall mean the terms and conditions for use, reproduction,\n   and distribution as defined by Sections 1 through 9 of this document.\n\n   \"Licensor\" shall mean the copyright owner or entity authorized by\n   the copyright owner that is granting the License.\n\n   \"Legal Entity\" shall mean the union of the acting entity and all\n   other entities that control, are controlled by, or are under common\n   control with that entity. For the purposes of this definition,\n   \"control\" means (i) the power, direct or indirect, to cause the\n   direction or management of such entity, whether by contract or\n   otherwise, or (ii) ownership of fifty percent (50%) or more of the\n   outstanding shares, or (iii) beneficial ownership of such entity.\n\n   \"You\" (or \"Your\") shall mean an individual or Legal Entity\n   exercising permissions granted by this License.\n\n   \"Source\" form shall mean the preferred form for making modifications,\n   including but not limited to software source code, documentation\n   source, and configuration files.\n\n   \"Object\" form shall mean any form resulting from mechanical\n   transformation or translation of a Source form, including but\n   not limited to compiled object code, generated documentation,\n   and conversions to other media types.\n\n   \"Work\" shall mean the work of authorship, whether in Source or\n   Object form, made available under the License, as indicated by a\n   copyright notice that is included in or attached to the work\n   (an example is provided in the Appendix below).\n\n   \"Derivative Works\" shall mean any work, whether in Source or Object\n   form, that is based on (or derived from) the Work and for which the\n   editorial revisions, annotations, elaborations, or other modifications\n   represent, as a whole, an original work of authorship. For the purposes\n   of this License, Derivative Works shall not include works that remain\n   separable from, or merely link (or bind by name) to the interfaces of,\n   the Work and Derivative Works thereof.\n\n   \"Contribution\" shall mean any work of authorship, including\n   the original version of the Work and any modifications or additions\n   to that Work or Derivative Works thereof, that is intentionally\n   submitted to Licensor for inclusion in the Work by the copyright owner\n   or by an individual or Legal Entity authorized to submit on behalf of\n   the copyright owner. For the purposes of this definition, \"submitted\"\n   means any form of electronic, verbal, or written communication sent\n   to the Licensor or its representatives, including but not limited to\n   communication on electronic mailing lists, source code control systems,\n   and issue tracking systems that are managed by, or on behalf of, the\n   Licensor for the purpose of discussing and improving the Work, but\n   excluding communication that is conspicuously marked or otherwise\n   designated in writing by the copyright owner as \"Not a Contribution.\"\n\n   \"Contributor\" shall mean Licensor and any individual or Legal Entity\n   on behalf of whom a Contribution has been received by Licensor and\n   subsequently incorporated within the Work.\n\n2. Grant of Copyright License. Subject to the terms and conditions of\n   this License, each Contributor hereby grants to You a perpetual,\n   worldwide, non-exclusive, no-charge, royalty-free, irrevocable\n   copyright license to reproduce, prepare Derivative Works of,\n   publicly display, publicly perform, sublicense, and distribute the\n   Work and such Derivative Works in Source or Object form.\n\n3. Grant of Patent License. Subject to the terms and conditions of\n   this License, each Contributor hereby grants to You a perpetual,\n   worldwide, non-exclusive, no-charge, royalty-free, irrevocable\n   (except as stated in this section) patent license to make, have made,\n   use, offer to sell, sell, import, and otherwise transfer the Work,\n   where such license applies only to those patent claims licensable\n   by such Contributor that are necessarily infringed by their\n   Contribution(s) alone or by combination of their Contribution(s)\n   with the Work to which such Contribution(s) was submitted. If You\n   institute patent litigation against any entity (including a\n   cross-claim or counterclaim in a lawsuit) alleging that the Work\n   or a Contribution incorporated within the Work constitutes direct\n   or contributory patent infringement, then any patent licenses\n   granted to You under this License for that Work shall terminate\n   as of the date such litigation is filed.\n\n4. Redistribution. You may reproduce and distribute copies of the\n   Work or Derivative Works thereof in any medium, with or without\n   modifications, and in Source or Object form, provided that You\n   meet the following conditions:\n\n   (a) You must give any other recipients of the Work or\n       Derivative Works a copy of this License; and\n\n   (b) You must cause any modified files to carry prominent notices\n       stating that You changed the files; and\n\n   (c) You must retain, in the Source form of any Derivative Works\n       that You distribute, all copyright, patent, trademark, and\n       attribution notices from the Source form of the Work,\n       excluding those notices that do not pertain to any part of\n       the Derivative Works; and\n\n   (d) If the Work includes a \"NOTICE\" text file as part of its\n       distribution, then any Derivative Works that You distribute must\n       include a readable copy of the attribution notices contained\n       within such NOTICE file, excluding those notices that do not\n       pertain to any part of the Derivative Works, in at least one\n       of the following places: within a NOTICE text file distributed\n       as part of the Derivative Works; within the Source form or\n       documentation, if provided along with the Derivative Works; or,\n       within a display generated by the Derivative Works, if and\n       wherever such third-party notices normally appear. The contents\n       of the NOTICE file are for informational purposes only and\n       do not modify the License. You may add Your own attribution\n       notices within Derivative Works that You distribute, alongside\n       or as an addendum to the NOTICE text from the Work, provided\n       that such additional attribution notices cannot be construed\n       as modifying the License.\n\n   You may add Your own copyright statement to Your modifications and\n   may provide additional or different license terms and conditions\n   for use, reproduction, or distribution of Your modifications, or\n   for any such Derivative Works as a whole, provided Your use,\n   reproduction, and distribution of the Work otherwise complies with\n   the conditions stated in this License.\n\n5. Submission of Contributions. Unless You explicitly state otherwise,\n   any Contribution intentionally submitted for inclusion in the Work\n   by You to the Licensor shall be under the terms and conditions of\n   this License, without any additional terms or conditions.\n   Notwithstanding the above, nothing herein shall supersede or modify\n   the terms of any separate license agreement you may have executed\n   with Licensor regarding such Contributions.\n\n6. Trademarks. This License does not grant permission to use the trade\n   names, trademarks, service marks, or product names of the Licensor,\n   except as required for reasonable and customary use in describing the\n   origin of the Work and reproducing the content of the NOTICE file.\n\n7. Disclaimer of Warranty. Unless required by applicable law or\n   agreed to in writing, Licensor provides the Work (and each\n   Contributor provides its Contributions) on an \"AS IS\" BASIS,\n   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or\n   implied, including, without limitation, any warranties or conditions\n   of TITLE, NON-INFRINGEMENT, MERCHANTABILITY, or FITNESS FOR A\n   PARTICULAR PURPOSE. You are solely responsible for determining the\n   appropriateness of using or redistributing the Work and assume any\n   risks associated with Your exercise of permissions under this License.\n\n8. Limitation of Liability. In no event and under no legal theory,\n   whether in tort (including negligence), contract, or otherwise,\n   unless required by applicable law (such as deliberate and grossly\n   negligent acts) or agreed to in writing, shall any Contributor be\n   liable to You for damages, including any direct, indirect, special,\n   incidental, or consequential damages of any character arising as a\n   result of this License or out of the use or inability to use the\n   Work (including but not limited to damages for loss of goodwill,\n   work stoppage, computer failure or malfunction, or any and all\n   other commercial damages or losses), even if such Contributor\n   has been advised of the possibility of such damages.\n\n9. Accepting Warranty or Additional Liability. While redistributing\n   the Work or Derivative Works thereof, You may choose to offer,\n   and charge a fee for, acceptance of support, warranty, indemnity,\n   or other liability obligations and/or rights consistent with this\n   License. However, in accepting such obligations, You may act only\n   on Your own behalf and on Your sole responsibility, not on behalf\n   of any other Contributor, and only if You agree to indemnify,\n   defend, and hold each Contributor harmless for any liability\n   incurred by, or claims asserted against, such Contributor by reason\n   of your accepting any such warranty or additional liability.\n\nEND OF TERMS AND CONDITIONS\n",
+      "Rust-LICENSE-MIT.txt": "Permission is hereby granted, free of charge, to any\nperson obtaining a copy of this software and associated\ndocumentation files (the \"Software\"), to deal in the\nSoftware without restriction, including without\nlimitation the rights to use, copy, modify, merge,\npublish, distribute, sublicense, and/or sell copies of\nthe Software, and to permit persons to whom the Software\nis furnished to do so, subject to the following\nconditions:\n\nThe above copyright notice and this permission notice\nshall be included in all copies or substantial portions\nof the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF\nANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED\nTO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A\nPARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT\nSHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY\nCLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION\nOF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR\nIN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER\nDEALINGS IN THE SOFTWARE.\n"
+    },
+    "repository": null
+  },
+  "packages": {
+    "go": {
+      "name": "example.org/rust-arithmetic",
+      "platform": "native_wasm",
+      "sha256": "59e3037cdfec74d760d5f9d56d6e0020b57457f0f92d9496eb58d76eeeaa9279"
+    },
+    "node": {
+      "name": "@demo/rust-math",
+      "sha256": "f52c52e2096e5a2705e8ecddc195ef51b1564c12e14cc3b4f59e5f665f345a07"
+    },
+    "rust": {
+      "name": "wisp-demo--rust-math",
+      "sha256": "9658fe378d6e02e62dbf7bc9a7c3da3fedf8e052c85eeb99dab04e55b5296d59"
+    }
+  },
+  "schema": 3,
+  "targetRequirements": {
+    "browser": {
+      "initialization": "top-level-await",
+      "reason": "unsupported-browser-wasi-reactor",
+      "supported": false
+    },
+    "errorContext": {
+      "nativeCleanup": "not-applicable",
+      "nativeCumulativeLiftLimit": null,
+      "supported": false
+    },
+    "go": {
+      "cgo": false,
+      "composition": "wisp-component-imports",
+      "native": {
+        "cgo": false,
+        "runtime": "github.com/wago-org/wago",
+        "version": "v0.1.0-beta.13.0.20261023135323-dc13730184e8"
+      },
+      "platform": "native_wasm",
+      "wasm": {
+        "cgo": false,
+        "target": "wasip1/wasm"
+      }
+    },
+    "node": {
+      "flags": [],
+      "futureCancellation": "not-applicable",
+      "version": "24.20.0"
+    },
+    "rustComponent": {
+      "hostImports": "outer-runtime",
+      "target": "wasm32-unknown-unknown"
+    },
+    "rustNative": {
+      "network": "none",
+      "platforms": [
+        "linux-x86_64",
+        "macos-aarch64"
+      ]
+    },
+    "wasiReactor": {
+      "arguments": "empty",
+      "clocks": "host",
+      "environment": "empty",
+      "filesystem": "no-preopens",
+      "random": "secure",
+      "stdio": "isolated"
+    }
+  },
+  "targets": [
+    "rust-native",
+    "rust-wasm32-unknown-unknown",
+    "node",
+    "go"
+  ],
+  "tools": {
+    "jco": "1.33.0",
+    "wasmtime": "50.0.0",
+    "witBindgen": "0.61.1",
+    "witParser": "0.245.1"
+  },
+  "version": "0.1.0"
+}

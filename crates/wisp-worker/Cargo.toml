@@ -1,0 +1,19 @@
+[package]
+name = "wisp-worker"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+wisp-worker-protocol = { path = "../wisp-worker-protocol" }
+anyhow = "1"
+serde_json = "1"
+base64 = "0.22"
+sha2 = "0.10"
+wasmtime = { version = "=50.0.0", default-features = false, features = ["anyhow", "cranelift", "runtime", "std", "component-model-async", "stack-switching", "threads", "cache", "parallel-compilation", "gc", "gc-drc", "wat", "wave"] }
+wasmtime-wasi = { version = "=50.0.0", default-features = false, features = ["p1", "p2", "p3"] }
+tokio = { version = "1", features = ["rt-multi-thread", "time", "macros"] }
+
+[dev-dependencies]
+tempfile = "3"
+wat = "1"
