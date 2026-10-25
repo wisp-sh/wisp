@@ -15,7 +15,7 @@ use std::{
 };
 use wit_parser::{Resolve, WorldId, WorldItem};
 
-const MAX_COMPONENT: u64 = 16 * 1024 * 1024;
+use crate::limits::MAX_COMPONENT_BYTES as MAX_COMPONENT;
 const MAX_JSON: u64 = 1024 * 1024;
 const MAX_NODES: usize = 64;
 const MAX_EDGES: usize = 256;

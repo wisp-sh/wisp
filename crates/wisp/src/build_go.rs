@@ -663,7 +663,7 @@ pub fn compile(
         &[],
         commands,
     )?;
-    read(&work.join("core.wasm"), 16 * 1024 * 1024)
+    read(&work.join("core.wasm"), crate::limits::MAX_COMPONENT_BYTES)
 }
 
 #[cfg(test)]

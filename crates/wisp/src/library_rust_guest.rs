@@ -11,7 +11,7 @@ use std::{
 use wit_parser::{FunctionKind, Resolve, Type, TypeDefKind, WorldId, WorldItem};
 
 pub const TARGET: &str = "wasm32-wasip1";
-const COMPONENT_LIMIT: u64 = 16 * 1024 * 1024;
+use crate::limits::MAX_COMPONENT_BYTES as COMPONENT_LIMIT;
 const FILE_LIMIT: u64 = 4 * 1024 * 1024;
 
 fn digest(bytes: &[u8]) -> String {

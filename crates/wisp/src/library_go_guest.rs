@@ -392,7 +392,10 @@ pub fn vendored(directory: &Path, module: &str) -> Result<Value> {
         .as_str()
         .context("Go guest module version")?;
     super::validate_module(module, version)?;
-    let component = read(&directory.join("component.wasm"), 16 * 1024 * 1024)?;
+    let component = read(
+        &directory.join("component.wasm"),
+        crate::limits::MAX_COMPONENT_BYTES,
+    )?;
     let portable = descriptor["platform"] == super::portable::PLATFORM;
     let expected_files = if portable {
         super::portable::files(&component, module, version, &BTreeMap::new())?

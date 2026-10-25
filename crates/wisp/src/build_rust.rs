@@ -579,7 +579,7 @@ fn validate_report(
             && report["artifact"]["path"].as_str() == artifact.to_str(),
         "Rust compiler artifact path differs from the fresh output directory"
     );
-    let bytes = read(&artifact, 16 * 1024 * 1024)?;
+    let bytes = read(&artifact, crate::limits::MAX_COMPONENT_BYTES)?;
     ensure!(
         bytes.starts_with(b"\0asm\x01\0\0\0") && report["artifact"]["sha256"] == digest(&bytes),
         "Rust compiler output checksum differs from receipt"

@@ -150,7 +150,7 @@ composition in a temporary directory before publishing a fresh output directory.
 The original library Components remain separate cache artifacts.
 
 Current limits are 64 nodes, 256 dependency edges, 128 versions per registry
-package, 5,000 solver states, 16 MiB per Component, 128 MiB of loaded candidate or
+package, 5,000 solver states, 64 MiB per Component, 128 MiB of loaded candidate or
 graph bytes, and 1 MiB per JSON document. Versions with build metadata are
 rejected. Composition tools currently run on Linux x86_64 and macOS ARM. This
 does not change native language-package platform support.

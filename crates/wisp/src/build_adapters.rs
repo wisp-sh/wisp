@@ -724,6 +724,43 @@ mod tests {
     }
 
     #[test]
+    fn admits_large_runtime_components_and_checks_the_upper_bound_before_reading() {
+        use std::borrow::Cow;
+        use wasm_encoder::Encode;
+
+        let (mut component, resolve, world) = add_component();
+        component.push(0);
+        wasm_encoder::CustomSection {
+            name: Cow::Borrowed("runtime-snapshot"),
+            data: Cow::Owned(vec![0; 17 * 1024 * 1024]),
+        }
+        .encode(&mut component);
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("runtime.wasm");
+        fs::write(&path, &component).unwrap();
+        let artifact = super::super::ComponentFile {
+            path: "runtime.wasm".into(),
+            sha256: super::super::digest(&component),
+        };
+        assert_eq!(
+            super::super::prebuilt_component(root.path(), &artifact, &resolve, world).unwrap(),
+            component
+        );
+        fs::OpenOptions::new()
+            .write(true)
+            .open(&path)
+            .unwrap()
+            .set_len(crate::limits::MAX_COMPONENT_BYTES + 1)
+            .unwrap();
+        assert!(
+            super::super::prebuilt_component(root.path(), &artifact, &resolve, world)
+                .unwrap_err()
+                .to_string()
+                .contains("size limit")
+        );
+    }
+
+    #[test]
     fn validates_adapter_entrypoints_and_options() {
         assert!(validate(Compiler::Java, &unit(Compiler::Java, "Math.java")).is_ok());
         let mut java = unit(Compiler::Java, "Math.java");

@@ -1478,7 +1478,7 @@ pub(crate) fn validate_module(module: &str, version: &str) -> Result<()> {
 
 fn decode_component(component: &[u8]) -> Result<(Resolve, WorldId)> {
     ensure!(
-        component.len() <= 16 * 1024 * 1024,
+        component.len() <= crate::limits::MAX_COMPONENT_BYTES as usize,
         "Go Component size limit"
     );
     wasmparser::Validator::new_with_features(wasmparser::WasmFeatures::all())

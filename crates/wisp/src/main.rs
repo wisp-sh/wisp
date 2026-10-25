@@ -15,6 +15,7 @@ mod library_metadata;
 mod library_publish;
 mod library_resources;
 mod library_wasi;
+mod limits;
 mod release;
 mod toolchain_install;
 mod toolchain_package;

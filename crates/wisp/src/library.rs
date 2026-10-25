@@ -1360,7 +1360,8 @@ pub fn validate(dir: &Path) -> Result<Value> {
         package_names(release["identity"].as_str().context("library identity")?)?;
     let component = fs::read(dir.join("component.wasm"))?;
     ensure!(
-        component.len() <= 16 * 1024 * 1024 && release["componentSha256"] == digest(&component),
+        component.len() <= crate::limits::MAX_COMPONENT_BYTES as usize
+            && release["componentSha256"] == digest(&component),
         "library Component digest mismatch"
     );
     wasmparser::Validator::new_with_features(wasmparser::WasmFeatures::all())
@@ -1759,7 +1760,7 @@ pub fn run_cli(args: &[String]) -> Result<Value> {
         "component path escapes package"
     );
     ensure!(
-        fs::metadata(&component_path)?.len() <= 16 * 1024 * 1024,
+        fs::metadata(&component_path)?.len() <= crate::limits::MAX_COMPONENT_BYTES,
         "component size limit"
     );
     let bytes = fs::read(component_path)?;
