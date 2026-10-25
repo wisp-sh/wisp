@@ -403,6 +403,19 @@ fn copy_file(
     files: &mut BTreeMap<String, String>,
     total: &mut u64,
 ) -> Result<()> {
+    copy_file_bounded(root, path, to, files, total, MAX_SOURCE, 4096)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn copy_file_bounded(
+    root: &Path,
+    path: &Path,
+    to: &Path,
+    files: &mut BTreeMap<String, String>,
+    total: &mut u64,
+    max_bytes: u64,
+    max_files: usize,
+) -> Result<()> {
     let relative = path
         .strip_prefix(root)?
         .to_str()
@@ -414,7 +427,7 @@ fn copy_file(
     }
     *total += bytes.len() as u64;
     ensure!(
-        *total <= MAX_SOURCE && files.len() < 4096,
+        *total <= max_bytes && files.len() < max_files,
         "source snapshot size/count limit"
     );
     files.insert(relative.clone(), digest(&bytes));

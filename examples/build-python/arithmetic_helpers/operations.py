@@ -1,8 +1,9 @@
 from componentize_py_types import Err
+from importlib.resources import files
 
 
 def greet(name: str) -> str:
-    return f'Hello, {name}!'
+    return files(__package__).joinpath('greeting.txt').read_text().format(name=name).strip()
 
 
 def total(values: list[int]) -> int:

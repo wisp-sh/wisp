@@ -32,7 +32,7 @@ The exact cases, pinned versions and CI results are in
 | --- | --- |
 | C++, Go, Rust | Inferred from ordinary public functions, including strings, lists, options, enums, records and results |
 | C | Scalar functions inferred; richer APIs use authored WIT |
-| Python | Annotated top-level functions, dataclasses, enums and typed results inferred in Wasm; authored WIT supported. Automatic cached templates and offline hash-locked pure Python dependencies. Linux x86_64 source builds are verified; native extensions remain unsupported. |
+| Python | Guest inference across bundled modules for annotated functions, dataclasses, enums and typed results; authored WIT supported. Automatic stdlib-aware templates, offline hash-locked wheels with markers/extras, and read-only package resources. 16 MiB source/data and 64 MiB Components. Linux x86_64 provisioning is verified; native extensions remain unsupported. |
 | AssemblyScript, Bend 2, Goose, Grain, Java, JavaScript, Kotlin, Nim, Swift, TypeScript, Zig | Builds supported; API limits vary by adapter |
 
 See [project builds](project-builds.md#output-and-current-limits) for each

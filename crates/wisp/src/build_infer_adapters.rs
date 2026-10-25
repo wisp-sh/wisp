@@ -15,20 +15,49 @@ pub(super) fn python_contract(
         let (body, hashes) = contract(root, unit, Compiler::Python, resolve)?;
         return Ok((body, hashes, false));
     }
-    let bytes = read(&source, MAX_SOURCE)?;
     let toolchain = crate::build::adapters::Toolchain::load(root, tools, Compiler::Python)?;
-    let declarations = toolchain.infer_python(&source)?;
-    Ok((
-        declarations,
-        BTreeMap::from([(
-            source
+    let project = unit
+        .project
+        .as_ref()
+        .map(|path| input(root, path))
+        .transpose()?;
+    let analysis = toolchain.python_analysis(&source, root, project.as_deref(), false)?;
+    let declarations = analysis["declarations"]
+        .as_str()
+        .context("Python inferred declarations")?
+        .to_owned();
+    let mut hashes = BTreeMap::new();
+    for (path, expected) in analysis["inputs"]
+        .as_object()
+        .context("Python inference inputs")?
+    {
+        let relative = Path::new(path)
+            .strip_prefix(root)
+            .context("Python inference input escapes project root")?;
+        let absolute = input(root, relative)?;
+        let actual = digest(&read(&absolute, MAX_SOURCE)?);
+        ensure!(
+            expected.as_str() == Some(&actual),
+            "Python input changed during inference: {path}"
+        );
+        hashes.insert(
+            absolute
                 .strip_prefix(root)?
                 .to_string_lossy()
                 .replace('\\', "/"),
-            digest(&bytes),
-        )]),
-        true,
-    ))
+            actual,
+        );
+    }
+    ensure!(
+        hashes.contains_key(
+            &source
+                .strip_prefix(root)?
+                .to_string_lossy()
+                .replace('\\', "/")
+        ),
+        "Python inference omitted the entrypoint hash"
+    );
+    Ok((declarations, hashes, true))
 }
 
 fn package_item(resolve: &Resolve, package: PackageId, item: &str) -> String {

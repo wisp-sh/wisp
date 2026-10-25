@@ -1,24 +1,9 @@
 """A typed Python API. Wisp infers its Component contract inside guest CPython."""
-from dataclasses import dataclass
-from enum import Enum
 from typing import Optional
 from componentize_py_types import Result
+from models import Person, Greeting
+from arithmetic_helpers.operations import greet
 import arithmetic_helpers as _helpers
-
-
-@dataclass
-class Person:
-    name: str
-    age: int
-
-
-class Greeting(Enum):
-    HELLO = 'hello'
-    GOOD_DAY = 'good day'
-
-
-def greet(name: str) -> str:
-    return _helpers.greet(name)
 
 
 def total(values: list[int]) -> int:

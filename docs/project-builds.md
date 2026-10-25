@@ -70,15 +70,17 @@ The frontend requires a host with Wasm exception support. Set
 LLVM host lacks that feature. See the
 [Goose example](../examples/build-goose/README.md).
 
-Python builds infer all public top-level functions defined in the file selected
-by `sources`. To expose another module, select that file as the source entrypoint.
-Imported functions are not inferred. Private functions starting with `_` are
-ignored. Every public parameter and return needs a supported annotation.
-`int`, `float`, `bool`, `str` and `bytes` map to `s64`, `f64`, `bool`, `string`
-and `list<u8>`. Lists, `Optional[T]` or `T | None`, entry-module dataclasses and
-`enum.Enum` map to their WIT equivalents. Nested options that collapse in Python, recursive types, generic functions,
-async functions, decorators on functions, variadic and keyword-only parameters
-are rejected with a diagnostic naming the public function. Inference uses
+Python builds infer public top-level functions in the file selected by `sources`,
+including reexports from bundled modules. A literal `__all__` selects exports.
+Private names starting with `_` are ignored. Every public parameter and return
+needs a supported annotation. `int`, `float`, `bool`, `str` and `bytes` map to
+`s64`, `f64`, `bool`, `string` and `list<u8>`. Lists, `Optional[T]` or `T | None`,
+dataclasses and `enum.Enum` map to their WIT equivalents. Types can be imported
+from bundled modules, with aliases and module-qualified annotations; imported
+types get module-qualified WIT names. Conditional definitions, computed export
+lists, nested options that collapse in Python, recursive types, generic or async
+functions, function decorators, variadic and keyword-only parameters are rejected.
+Diagnostics name the public function and unsupported type. Inference uses guest
 CPython's `ast` inside Wasm and never executes application code.
 
 For typed failures, annotate `Result[T, E]` imported from
@@ -100,20 +102,26 @@ source parsing, compilation, initialization, packaging and final validation run
 inside Wasm. The first contract build needs bootstrap-sized memory and disk;
 function-body edits reuse the snapshot. Automatic provisioning currently requires
 Linux x86_64. Other compatible hosts can reuse an installed matching template.
-Install a newly bootstrapped Python
-package to get inference and offline provisioning assets. Legacy packages cannot
+Install a newly bootstrapped Python package to get inference and offline
+provisioning assets. Legacy packages cannot
 supply them automatically.
 
 Set `project` to the directory containing your top-level Python packages and
-keep one entrypoint in `sources`. Relative imports, namespace packages and
-function-local imports execute in guest CPython. The aggregate source bundle,
-including dependencies and its loader, is limited to 1 MiB. Components retain
-the 64 MiB admission limit. Only the template's preinitialized standard-library
-modules are available. Manual contract provisioning remains useful for custom
-`--preload-module` sets.
+keep one entrypoint in `sources`. For a `src/` layout, use `project = "src"` and
+`sources = ["src/main.py"]`; dependency declarations and the lock remain beside
+`wisp.toml`. Relative imports, namespace packages and function-local imports run
+in guest CPython. Source plus package data is limited to 16 MiB, the encoded
+program plus loader to 32 MiB, and finished Components to 64 MiB.
 
-Pure Python third-party dependencies are selected offline from exact stable
-numeric pins in `[project].dependencies` in `pyproject.toml` and/or
+Guest analysis discovers stdlib imports across reachable bundled modules and
+preinitializes them automatically. Changing that set selects a new cached
+template. Computed imports and lazy stdlib helpers may need explicit
+`preload-modules = ["html.parser"]` under `[tool.wisp.python]` in `pyproject.toml`.
+Availability still depends on the bundled
+WASI CPython runtime and the consuming host's capabilities.
+
+Pure Python third-party dependencies are selected offline from PEP 440/508
+requirements in `[project].dependencies` in `pyproject.toml` and/or
 `requirements.txt`. A `python-deps.lock.json` beside them must pin every selected
 package, including transitive dependencies, to a local wheel or vendor tree:
 
@@ -131,20 +139,28 @@ package, including transitive dependencies, to a local wheel or vendor tree:
 }
 ```
 
-For that entry, use `example-package==1.2.3` in either project dependency list.
-`requirements.txt` may also attach `--hash=sha256:...`; it must match the lock.
-Wheel metadata must identify the same name/version, declare purelib and use
-`py*-none-any` tags. Transitive metadata constraints are checked against the lock;
-missing or incompatible pins fail. Stable numeric version comparisons, wildcard
-`==`/`!=` and `~=` are supported. Markers, extras, prereleases, URLs, editable
-installs, source distributions and dynamic dependency declarations are rejected.
-No pip, package setup code or network resolver runs during a build.
+For that entry, `example-package>=1,<2` is allowed: the lock fixes its exact
+version and SHA-256. Every active transitive dependency must also be locked.
+Markers target CPython 3.14.0 on WASI, including `sys_platform="wasi"` and
+`platform_machine="wasm32"`. Extras, prereleases, epochs and local versions are
+supported. Select project extras with `[tool.wisp.python] extras = ["feature"]`.
+Requirements files support `-r`, `-c`, continuations and matching `--hash=sha256:`
+values. Direct URLs must match a lock `url`; bytes still come from its local
+`path`, with no network access. Editable installs, source distributions, installer
+options and dynamic project dependencies remain unsupported.
 
-For vendored source, `path` selects a directory, `files` maps each relative `.py`
+For vendored source, `path` selects a directory, `files` maps every source/data
 path to its SHA-256, and `sha256` hashes the UTF-8 JSON encoding of that map with
 sorted keys and separators `,` and `:` without whitespace. Optional `requires`
-lists transitive metadata requirements. Every file must appear in the inventory.
-Native extensions, package data, relocation directories and symlinks are rejected.
+and `extras` describe its metadata. Wheel metadata, version constraints,
+`Requires-Python` and purelib `*-none-any` tags are checked against the lock.
+
+Package resources and distribution metadata are bundled in a read-only virtual
+filesystem. `importlib.resources`, `pkgutil.get_data`, `importlib.metadata` and
+Python `open`/`pathlib` paths derived from `__file__` can read them without host
+preopens. OS file descriptors, mmap and writes are unsupported. Wheel
+`.data/purelib` relocation is supported; other install schemes, native
+extensions, bytecode-only packages and symlinks are rejected.
 See [the Python example](../examples/build-python/README.md) and
 [the WASI extension design note](python-native-extensions.md).
 

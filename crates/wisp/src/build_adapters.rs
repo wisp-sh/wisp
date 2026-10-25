@@ -110,12 +110,29 @@ fn executable(
 }
 
 impl Toolchain {
-    pub(super) fn infer_python(&self, source: &Path) -> Result<String> {
+    pub(super) fn python_analysis(
+        &self,
+        source: &Path,
+        root: &Path,
+        package_root: Option<&Path>,
+        inputs_only: bool,
+    ) -> Result<Value> {
         let script = self.script.path.with_file_name("infer.py");
-        let result = Command::new(&self.python.path)
+        let mut command = Command::new(&self.python.path);
+        command
             .arg(&script)
             .arg(source)
-            .arg("--declarations")
+            .arg(if inputs_only {
+                "--inputs"
+            } else {
+                "--analysis"
+            })
+            .arg("--dependency-root")
+            .arg(root);
+        if let Some(path) = package_root {
+            command.arg("--package-root").arg(path);
+        }
+        let result = command
             .env_clear()
             .env("PATH", std::env::var_os("PATH").unwrap_or_default())
             .env("PYTHONDONTWRITEBYTECODE", "1")
@@ -133,7 +150,7 @@ impl Toolchain {
             result.stdout.len() <= MAX_SOURCE as usize,
             "Python inferred contract exceeds size limit"
         );
-        Ok(String::from_utf8(result.stdout)?)
+        Ok(serde_json::from_slice(&result.stdout).context("Python analysis JSON")?)
     }
 
     pub(super) fn load(root: &Path, tools: &Tools, compiler: Compiler) -> Result<Self> {
@@ -335,6 +352,21 @@ impl Toolchain {
             .transpose()?;
         let mut sources = Vec::new();
         let mut directories = BTreeSet::new();
+        if matches!(self.compiler, Compiler::Python) {
+            let entry = input(root, &unit.sources[0])?;
+            let analysis = self.python_analysis(&entry, root, project.as_deref(), true)?;
+            for path in analysis["inputs"]
+                .as_object()
+                .context("Python staging inputs")?
+                .keys()
+            {
+                let relative = Path::new(path)
+                    .strip_prefix(root)
+                    .context("Python staging input escapes project root")?;
+                let absolute = input(root, relative)?;
+                adapter_copy_file(root, &absolute, source, self.compiler, files, total)?;
+            }
+        }
         if let Some(project) = &project {
             ensure!(project.is_dir(), "adapter project must be a directory");
             directories.insert(project.clone());
@@ -361,7 +393,7 @@ impl Toolchain {
                     self.compiler.name(),
                     path.display()
                 );
-                copy_file(root, &absolute, source, files, total)?;
+                adapter_copy_file(root, &absolute, source, self.compiler, files, total)?;
                 directories.insert(absolute.parent().context("source directory")?.to_path_buf());
             }
             sources.push(source.join(absolute.strip_prefix(root)?));
@@ -435,6 +467,10 @@ impl Toolchain {
             ]),
             Compiler::Python => {
                 if !legacy_python_contract(resolve, world) {
+                    argv.extend([
+                        "--dependency-root".into(),
+                        source.to_string_lossy().into_owned(),
+                    ]);
                     if python_inferred {
                         argv.push("--inferred".into());
                     }
@@ -600,6 +636,31 @@ fn source_extension(compiler: Compiler, path: &Path) -> bool {
     }
 }
 
+fn adapter_copy_file(
+    root: &Path,
+    path: &Path,
+    destination: &Path,
+    compiler: Compiler,
+    files: &mut BTreeMap<String, String>,
+    total: &mut u64,
+) -> Result<()> {
+    if matches!(compiler, Compiler::Python) {
+        // Staging also includes compressed wheels and build metadata, which are
+        // outside the 16 MiB decoded source/data bundle budget.
+        copy_file_bounded(
+            root,
+            path,
+            destination,
+            files,
+            total,
+            64 * 1024 * 1024,
+            16384,
+        )
+    } else {
+        copy_file(root, path, destination, files, total)
+    }
+}
+
 fn snapshot(
     root: &Path,
     directory: &Path,
@@ -620,6 +681,7 @@ fn snapshot(
             .any(|part| part.as_os_str() == "node_modules");
         if name.starts_with('.')
             || name == "node_modules" && !javascript
+            || name == "out" && directory == root && matches!(compiler, Compiler::Python)
             || matches!(name, "target" | "dist" | "build" | "work") && !in_dependency
             || matches!(name, "__pycache__" | "zig-out")
         {
@@ -642,7 +704,7 @@ fn snapshot(
             );
             // Compilers can read non-source assets, such as Zig @embedFile data.
             // copy_file enforces the same aggregate budget and records their hashes.
-            copy_file(root, &path, destination, files, total)?;
+            adapter_copy_file(root, &path, destination, compiler, files, total)?;
         }
     }
     Ok(())
@@ -882,6 +944,19 @@ mod tests {
                 fixture.to_str().unwrap()
             );
             write(&script, &script_text).unwrap();
+            if matches!(compiler, Compiler::Python) {
+                let metadata = root.join("dist/requirements.txt");
+                write(&metadata, "local==1.0").unwrap();
+                write(root.join("out/previous.wasm"), "old generated output").unwrap();
+                write(
+                    temp.path().join("infer.py"),
+                    format!(
+                        "import json\nprint(json.dumps({{'inputs': {{{:?}: 'hash'}}}}))",
+                        metadata.to_str().unwrap()
+                    ),
+                )
+                .unwrap();
+            }
             let toolchain = Toolchain {
                 compiler,
                 script: Tool {
@@ -937,8 +1012,21 @@ mod tests {
             }
             assert_eq!(commands[0]["status"], 0);
             if matches!(compiler, Compiler::Python) {
+                assert!(!files.contains_key("out/previous.wasm"));
+                assert_eq!(
+                    files.get("dist/requirements.txt"),
+                    Some(&digest(b"local==1.0"))
+                );
                 let arguments = commands[0]["arguments"].as_array().unwrap();
                 assert!(arguments.iter().any(|value| value == "--inferred"));
+                let dependency_root_index = arguments
+                    .iter()
+                    .position(|value| value == "--dependency-root")
+                    .unwrap();
+                assert_eq!(
+                    Path::new(arguments[dependency_root_index + 1].as_str().unwrap()),
+                    source.as_path()
+                );
                 let cache_index = arguments
                     .iter()
                     .position(|value| value == "--cache-dir")
@@ -965,7 +1053,7 @@ mod tests {
         let source = temp.path().join("api.py");
         write(&source, "raise RuntimeError('must not run on the host')").unwrap();
         let script = temp.path().join("infer.py");
-        write(&script, "import sys\nassert sys.argv[1].endswith('api.py')\nassert sys.argv[2] == '--declarations'\nprint('ready: func() -> bool;')\n").unwrap();
+        write(&script, "import sys\nassert sys.argv[1].endswith('api.py')\nassert sys.argv[2] == '--analysis'\nprint('{\"declarations\": \"ready: func() -> bool;\", \"inputs\": {}}')\n").unwrap();
         let toolchain = Toolchain {
             compiler: Compiler::Python,
             script: Tool {
@@ -986,7 +1074,10 @@ mod tests {
             },
             environment: BTreeMap::new(),
         };
-        let wit = toolchain.infer_python(&source).unwrap();
+        let analysis = toolchain
+            .python_analysis(&source, temp.path(), None, false)
+            .unwrap();
+        let wit = analysis["declarations"].as_str().unwrap();
         Resolve::default()
             .push_str(
                 "inferred.wit",
@@ -1000,7 +1091,10 @@ mod tests {
             "raise SystemExit('function bad: unsupported Python type dict[str, int]')",
         )
         .unwrap();
-        let error = toolchain.infer_python(&source).unwrap_err().to_string();
+        let error = toolchain
+            .python_analysis(&source, temp.path(), None, false)
+            .unwrap_err()
+            .to_string();
         assert!(error.contains("function bad: unsupported Python type dict[str, int]"));
     }
 

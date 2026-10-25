@@ -1,6 +1,8 @@
 # Python library with an inferred Component API
 
-`main.py` defines ordinary annotated functions, a dataclass and an enum. Wisp
+`main.py` exposes annotated functions and imports its dataclass and enum from
+`models.py`. It reexports `greet` from a local package, which reads a bundled
+text resource through `importlib.resources`. Wisp
 asks guest CPython to infer the contract, then obtains a matching runtime from
 the installed Python toolchain. No authored WIT or manual template command is
 needed. Local package imports still work through `project = "."`.
@@ -25,8 +27,8 @@ error. Return the success value directly or raise `componentize_py_types.Err(E)`
 The first build of an API can be slow. The toolchain provisions its CPython
 snapshot using bundled, pinned native componentize-py and bootstrap tools. That
 step reads only WIT. Wisp caches it under `.wisp-cache/python/`, or your `--cache`
-directory. Function-body changes reuse the template; contract changes select a
-new one. Application parsing, compilation and initialization run inside Wasm.
+directory. Function-body changes reuse the template; contract or discovered stdlib
+import changes select a new one. Stdlib imports are discovered inside Wasm. Application parsing, compilation and initialization run inside Wasm.
 
 `wisp-authored.toml`, `authored.py` and `library.wit` retain the authored-WIT
 variant, including its explicit integer widths:
