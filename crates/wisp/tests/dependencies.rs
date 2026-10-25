@@ -8,6 +8,9 @@ mod identity;
 #[path = "../src/inspect.rs"]
 mod inspect;
 #[allow(dead_code)]
+#[path = "../src/limits.rs"]
+mod limits;
+#[allow(dead_code)]
 #[path = "../src/release.rs"]
 mod release;
 #[allow(dead_code)]

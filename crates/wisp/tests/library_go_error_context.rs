@@ -1,4 +1,7 @@
 #[allow(dead_code)]
+#[path = "../src/generator_tools.rs"]
+mod generator_tools;
+#[allow(dead_code)]
 #[path = "../src/library_go.rs"]
 mod library_go;
 #[allow(dead_code)]
@@ -7,6 +10,12 @@ mod library_metadata;
 #[allow(dead_code)]
 #[path = "../src/library_wasi.rs"]
 mod library_wasi;
+#[allow(dead_code)]
+#[path = "../src/limits.rs"]
+mod limits;
+#[allow(dead_code)]
+#[path = "../src/release.rs"]
+mod release;
 #[allow(dead_code)]
 #[path = "../src/wit_model.rs"]
 mod wit_model;

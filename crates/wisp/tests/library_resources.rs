@@ -31,6 +31,9 @@ mod library_resources;
 #[path = "../src/library_wasi.rs"]
 mod library_wasi;
 #[allow(dead_code)]
+#[path = "../src/limits.rs"]
+mod limits;
+#[allow(dead_code)]
 #[path = "../src/release.rs"]
 mod release;
 #[allow(dead_code)]
