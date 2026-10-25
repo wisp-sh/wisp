@@ -48,7 +48,7 @@ browser. Keep the matching worker beside the CLI or set `WISP_WORKER`.
 
 ## Full acceptance
 
-The [source compiler CI guide](docs/source-build-ci.md) describes acquisition and
+The [source compiler CI guide](docs/verification/source-build-ci.md) describes acquisition and
 execution from clean compiler bundles. That job needs an explicit manifest URL
 and digest. The [Component chain harness](tests/component-chain/README.md)
 has its own pinned setup and offline verification script. The installed

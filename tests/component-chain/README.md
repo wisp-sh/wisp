@@ -105,5 +105,5 @@ These commands assume this directory as the working directory and tools on
 `PATH`. The Python runner uses absolute paths and preserves the results under its
 output directory.
 
-The [architecture decision](../../docs/component-library-architecture.md) records the
+The [architecture decision](../../docs/verification/architecture.md) records the
 selected tools, evidence and limits.

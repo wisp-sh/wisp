@@ -565,27 +565,7 @@ post-return rewriter have been removed.
 
 ## Verification
 
-Run the CLI regression tests and upstream guest package checks:
-
-```sh
-cargo test --locked -p wisp --test build --test library_go_upstream
-```
-
-The source runners build component-only C/C++/Go/Rust implementations and a
-mixed Go-to-C++ graph, then execute the Components through JCO. They do not
-install npm packages or rebuild native library hosts.
-
-```sh
-python3 tests/source-build/run.py --cli target/debug/wisp \
-  --out out/source-apis --runtime-cache .wisp-cache
-python3 tests/source-build/values.py --cli target/debug/wisp --out out/source-values
-```
-
-The shared rich verifier checks general string lists, enum options, nested lists
-of options, records, typed results and repeated ownership transfers. The Serde
-runner separately checks procedural macros inside the Wasm-hosted Rust compiler.
-[Source compiler CI](source-build-ci.md) describes provisioning and receipts.
-Existing library-chain suites cover registry publication and native consumers.
+See [source build tests](verification/test-suites.md#source-builds).
 
 ## Rust compiler
 

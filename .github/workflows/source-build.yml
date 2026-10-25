@@ -48,7 +48,7 @@ jobs:
         run: |
           set -euo pipefail
           test -n "$WISP_SOURCE_MANIFEST_URL" || {
-            echo 'Set WISP_SOURCE_TOOLCHAIN_MANIFEST_URL and WISP_SOURCE_TOOLCHAIN_MANIFEST_SHA256 repository variables, or provide workflow_dispatch inputs. See docs/source-build-ci.md.' >&2
+            echo 'Set WISP_SOURCE_TOOLCHAIN_MANIFEST_URL and WISP_SOURCE_TOOLCHAIN_MANIFEST_SHA256 repository variables, or provide workflow_dispatch inputs. See docs/verification/source-build-ci.md.' >&2
             exit 1
           }
           [[ "$WISP_SOURCE_MANIFEST_SHA256" =~ ^[0-9a-f]{64}$ ]]

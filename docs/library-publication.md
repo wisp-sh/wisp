@@ -159,30 +159,4 @@ release, its supported native builder. The output path must not already exist.
 
 ## Executable acceptance
 
-After creating a schema-3 release with the pinned generator, run:
-
-```bash
-python3 tests/library-publication/run.py --cli /absolute/path/to/wisp \
-  --release out/library-release --evidence evidence/publication-new-run
-```
-
-The fixture starts empty loopback registries and publishes through their standard
-Cargo/npm APIs and OCI upload endpoints. It injects an npm failure after OCI and
-Cargo succeed, verifies that retry preserves those successes, and checks a
-completed retry makes no writes. Negative controls alter remote tarball bytes,
-registry dependency metadata, and local release bytes, and send an OCI upload
-location to another origin.
-
-Fresh Cargo, npm, and optional Go consumers live in a temporary directory outside the checkout.
-They install from the published registries, then reuse their caches after those
-registries shut down. Node imports the installed public package. Cargo verifies
-package installation and offline fetching here; native execution and the typed
-success/error comparison belong to the separate library-chain acceptance.
-No public registry is contacted for publication. Initial Cargo dependency
-resolution may fetch the generated package's pinned runtime dependencies from
-crates.io when they are absent from the local cache.
-
-The all-channel run at `evidence/publication-all-v2/result.json` passed package
-installation, offline cache reuse, partial-success retry, immutable Go version
-checks, OCI fetch, and rejection of a forged OCI blob. These are local registry
-results, not evidence of publication to public accounts.
+See [publication tests](verification/test-suites.md#publication).

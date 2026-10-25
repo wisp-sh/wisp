@@ -2,7 +2,7 @@
 
 `wisp library pack` creates packages that call an authored Component. One Cargo package serves native Rust applications and `wasm32-unknown-unknown` Component guests. Import-free native scalar APIs start a bundled Wisp worker using upstream Wasmtime 50.0.0. Consumers install no separate runtime. APIs with host imports, resources or async values retain their established native Wasmtime bindings. Component guests call imports generated from the same WIT and contain no host runtime. The npm package contains JCO bindings and Core Wasm. An optional Go module selects pinned native Wago or Wasm imports automatically for scalar APIs. Richer Go contracts retain their native client bindings.
 
-The [installed package fixture](../tests/library-chain/README.md) installs through isolated Cargo and npm registries, stops both servers, and executes the native Rust, Node, and composed Component consumers. Its general fixture checks nested records, strings, lists, tuples, options, flags, variants, typed errors, shared types, and several interfaces sharing one instance. The [architecture decision](component-library-architecture.md) explains the binding and composition choices.
+The [installed package fixture](../tests/library-chain/README.md) installs through isolated Cargo and npm registries, stops both servers, and executes the native Rust, Node, and composed Component consumers. Its general fixture checks nested records, strings, lists, tuples, options, flags, variants, typed errors, shared types, and several interfaces sharing one instance. The [architecture decision](verification/architecture.md) explains the binding and composition choices.
 
 ## Authoring and packaging
 
@@ -96,37 +96,17 @@ For applications compiled by `wisp build`, `wisp library rust-guest ADMITTED_REL
 
 [Publication preparation](library-publication.md) validates and snapshots the release before sending anything. Publication uploads exact admitted bytes to configured Cargo, npm, and OCI registries and records each confirmed upload independently. Local registry tests cover retries and interrupted publication. They do not establish interoperability with every public registry.
 
-## Admission and generator authentication
+## Admission
 
-Admission validates the Component, decoded contract, names, versions, targets, requirements, tools, archive framing, metadata, notices, and hashes. It regenerates Rust source, WIT, package descriptors, and the complete JCO output, then compares them with the submitted archives. Optional Go admission regenerates its API, runtime metadata, and package files. Richer native clients also require reconstruction of their native archive using the declared platform and pinned inputs. For Rust worker packages, admission reconstructs generated source using the
-release-carried worker platform manifest. It checks worker version `0.2.0`,
-protocol `1`, Wasmtime `50.0.0`, exact paths and file inventory, and each worker's
-SHA-256. It also authenticates those worker hashes against an independent trust
-source. Structural self-hashes alone are insufficient.
-
-Set `WISP_WORKER_TRUST_MANIFEST` to an independently trusted canonical
-`worker/manifest.json`, using the same schema as the package's worker manifest:
+`wisp library validate` regenerates every generated package from the Component and
+contract and rejects any difference. Rust worker packages are also checked against
+an independently trusted worker manifest:
 
 ```sh
 export WISP_WORKER_TRUST_MANIFEST=/trusted/wisp/worker/manifest.json
 wisp library validate out/library-release
 ```
 
-With this configured manifest, admission can validate foreign artifacts without
-an installed worker or a matching local build. It does not execute a worker.
-Without the variable, local development authenticates against hashes from the
-selected local worker bundle. That fallback requires the trusted local bundle
-and does not accept arbitrary release-carried worker hashes.
-
-Obtain the trust manifest through an independently authenticated build or
-release process and verify its provenance before configuring it. Never copy an
-untrusted uploaded manifest into the trust store. There are no canonical
-published worker artifacts to pin globally. Matching a trusted SHA-256 proves
-that the bundled bytes match the approved artifact; it does not establish that
-the executable is safe. Publishers remain responsible for native executable
-trust. Recalculating archive hashes does not authorize changed generated source
-or replacement worker executables. [Negative controls](../tests/library-chain/admission.py) mutate code, descriptors, contracts, targets, and archive members.
-
-Generator authentication verifies the Node executable against the platform lock. It authenticates every installed JCO dependency file against cached npm tarballs whose integrity values come from the checked-in package lock, and rejects added files. The npm tarball cache must remain available during packing and validation. Cargo checksums identify registry contents; they do not establish provenance or code safety.
-
-The [target matrix](target-support.md) records verified, unverified and unsupported combinations. CI configuration and local execution evidence remain separate. Acceptance reports bind commands, lockfiles, package hashes, guest dependency graphs, repeated composition hashes, and a frozen packaging executable with source and asset snapshots. Replay removes a stale success report before doing any work.
+Admission checks identity and byte integrity; it does not prove that a package is
+safe to run. See [admission and generator authentication](verification/admission.md#component-library-packages)
+for the full rules and trust model.

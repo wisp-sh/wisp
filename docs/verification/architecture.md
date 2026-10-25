@@ -6,7 +6,7 @@ artifact contains both guest Components and runs in an outer runtime. A guest
 package must not depend on Wasmtime to call another Component.
 
 The executable proof is
-[component-library-chain](../tests/component-chain/README.md).
+[component-library-chain](../../tests/component-chain/README.md).
 Library A accepts a record and returns either a `u64` total or a named overflow
 error. B calls A through a Component import. The harness requires the outer
 Wasmtime process to return `ok(21)` and `err(overflow)` from B, matching direct
@@ -57,7 +57,7 @@ A generated Rust library package needs target-specific dependencies and APIs:
 | `wasm32-unknown-unknown` Component guest | Calls imports generated from the dependency WIT; excludes host-runtime crates and native archives. |
 | Other Rust Wasm targets | Reject with an explicit unsupported-target explanation until a real consumer passes. |
 
-The architecture proof implements the guest path directly. The [installed package acceptance fixture](../tests/library-chain/README.md) also verifies one generated Cargo package on native Rust and inside a Component guest, together with Cargo/npm registry installation, typed errors, and offline replay. Its general fixture covers nested values, shared types, multiple interfaces, and shared instance state.
+The architecture proof implements the guest path directly. The [installed package acceptance fixture](../../tests/library-chain/README.md) also verifies one generated Cargo package on native Rust and inside a Component guest, together with Cargo/npm registry installation, typed errors, and offline replay. Its general fixture covers nested values, shared types, multiple interfaces, and shared instance state.
 
 The Component build sequence is:
 
@@ -88,6 +88,6 @@ runtime and those final bytes. It does not fetch code or instantiate an embedded
 runtime. Application networking through a future WASI import is separate from
 dependency installation.
 
-[Component dependency locks](component-dependencies.md) and [library
-packages](component-library-packages.md) have separate formats and admission
+[Component dependency locks](../component-dependencies.md) and [library
+packages](../component-library-packages.md) have separate formats and admission
 rules.

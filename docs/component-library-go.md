@@ -157,58 +157,12 @@ includes a real published-and-installed package and all import/export bindings.
 
 ## Admission and reproducibility
 
-Portable admission regenerates both implementations, the
-Component, module dependencies and checksums, metadata, and the canonical ZIP.
-It rejects changed or extra files. Go verifies the runtime dependency through
-its module checksums. Consumer source builds authenticate the vendored package
-and stage only dependencies reachable on the Wasm import graph, so vendored
-native runtime sources and libraries never enter the Wasm compiler.
-
-Richer native Go admission regenerates the Go API, private C header, Rust shim, canonical WIT,
-embedded Component, Cargo manifest, and complete pinned Cargo lock. It rejects
-extra files and altered generated sources. It rebuilds the native static
-library with Rust 1.98.1 and Wasmtime 50.0.0, then compares its hash and the full
-provenance record. Altering both native bytes and their reported hash does not
-bypass this rebuild. The package includes `WISP-GO-LICENSES.json`: source notices and license metadata
-from the complete pinned Cargo graph, with registry archives authenticated against
-the lock, plus the pinned Rust standard library copyright notices. Wisp collects these while packing, so the Cargo cache must hold every
-archive in the pinned shim lock, including target-specific ones; `cargo fetch
---locked` downloads them. Author notices
-are authenticated against the metadata passed to generation and admission.
-ZIP admission also checks paths, duplicate entries,
-symlinks, file counts, compressed and expanded byte limits, and canonical ZIP
-bytes.
-
-Native admission requires the archive's platform and the pinned compiler and
-cached dependency sources. It uses fixed crate metadata, remapped shim paths,
-`SOURCE_DATE_EPOCH=0`, and deterministic archive timestamps. A generated rustc
-wrapper also remaps dependency source and generated build paths. Independent
-native target caches produced identical archives on macOS ARM; admission still
-fails closed if a different build environment produces different bytes. Source
-and archive hashes
-do not establish ownership of a public module domain.
+Admission regenerates the Go API, runtime metadata and package files and rejects any
+difference; richer native clients also rebuild their native archive. See
+[Go module admission](verification/admission.md#go-modules) for the exact checks
+and [test suites](verification/test-suites.md#go-modules) for the executable checks.
 
 Native build caches use `WISP_GO_CARGO_TARGET_DIR` when set, otherwise
 `XDG_CACHE_HOME/wisp/library-go/native-target` or
 `HOME/.cache/wisp/library-go/native-target`. Cargo runs offline with the embedded
 complete lock; dependency caches must be populated during setup.
-
-Run the executable checks after provisioning the pinned toolchains and Cargo
-sources:
-
-```sh
-cargo build --locked -p wisp -p wisp-worker
-cargo test --locked -p wisp --test library_go_guest --test library_go --test library_go_resources \
-  --test library_go_network --test library_go_async \
-  --test library_go_error_context
-```
-
-`library_go_guest` checks the pinned Wago module and the absence of worker and
-native-archive directories. It executes installed native modules with cgo
-disabled, builds the same API for Wasm, tests scalar state, concurrency and traps,
-and runs retained C++, Rust and Go compiler output. The other fixtures exercise
-nested values, typed errors, shared state, resources,
-async readers, error contexts, and networking through installed modules. The
-ordinary-value test also checks source substitution, a forged native report,
-and archive path controls. Evidence is written under
-`evidence/library-go-*/` for the exercised native platform.

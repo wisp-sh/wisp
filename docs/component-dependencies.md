@@ -3,7 +3,7 @@
 `wisp deps` resolves Components from a local directory registry and composes a
 verified cache into a new executable Component. Original files remain unchanged.
 The commands use the guest tools selected by the
-[Component architecture decision](component-library-architecture.md), including
+[Component architecture decision](verification/architecture.md), including
 WAC 0.10.1. Provision them with the documented proof setup first. `WISP_WAC` can
 select an absolute binary path; Wisp verifies the pinned binary hash before
 running it.
@@ -157,17 +157,4 @@ does not change native language-package platform support.
 
 ## Executable coverage
 
-After provisioning the Component proof tools:
-
-```sh
-cargo test --locked --test dependencies -- --test-threads=1
-```
-
-These tests build and execute C → B → A, share A between consumers, remove the
-registry before cache-only composition, and compare successful output bytes
-across cache reinstallation. They exercise targeted updates to another A release,
-same-version substitution, incompatible WIT signatures, requirement conflicts,
-cycles, missing packages, cache tampering, two explicit interface versions, and
-outer host imports. They do not establish support for a public Component
-registry, authenticated publisher ownership, or runtime safety of arbitrary
-Components. Hashes identify bytes and detect changes.
+See [dependency tests](verification/test-suites.md#component-dependencies).

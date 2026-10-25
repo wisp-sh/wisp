@@ -51,7 +51,7 @@ retain the actual evidence. Only a complete positive build, execution and
 negative diagnostic check produce `status: "passed"`. This check does not
 replace the standalone six-case compiler acceptance or the registry verifier.
 
-[Source compiler CI](../../docs/source-build-ci.md) installs versioned bundles
+[Source compiler CI](../../docs/verification/source-build-ci.md) installs versioned bundles
 into a fresh prefix, provisions the shared hosts and vendors this committed
 fixture without a sibling compiler checkout. It also executes the generated
 Serde Rust package through an offline native Cargo consumer.

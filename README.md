@@ -19,6 +19,63 @@ packages that Component so it can be installed from another language:
 The compilers themselves run as Wasm, so the host does not need a native
 toolchain for each source language.
 
+## What it looks like
+
+Write ordinary Go. There are no annotations, bindings or WIT file:
+
+```go
+// src/main.go
+package main
+
+func Add(a, b uint32) uint32 { return a + b }
+
+func main() {}
+```
+
+```toml
+# wisp.toml
+[package]
+name = "demo:go-arithmetic"
+version = "0.1.0"
+
+[build]
+compiler = "go"
+project = "src"
+```
+
+Build it once:
+
+```sh
+wisp build . --out out/go-arithmetic
+```
+
+The release contains a Component, an npm package and a Cargo crate, each with
+a typed API inferred from the Go source.
+
+**Node** (`npm install ./out/go-arithmetic/node.tgz`):
+
+```js
+import { api } from '@demo/go-arithmetic';
+
+console.log(api.add(20, 22)); // 42
+```
+
+**Rust** (`wisp-demo--go-arithmetic = { path = "out/go-arithmetic/rust" }`):
+
+```rust
+use wisp_demo__go_arithmetic::Library;
+
+let mut api = Library::new()?.api();
+assert_eq!(api.add(20, 22)?, 42);
+```
+
+Neither consumer needs Go installed. Node runs the Component through
+generated JCO bindings. Native Rust runs it in a bundled Wasmtime. The same
+crate also works inside other Wasm Components, and the release can be published
+to Cargo, npm, OCI and Go registries. See
+[cpp-import-go](examples/cpp-import-go/README.md) for this package consumed
+from C++.
+
 ## Features
 
 - **Many source languages.** `wisp build` compiles C/C++, Go, Rust, Zig,
@@ -114,13 +171,20 @@ consumer platforms, verified features and API limits is in the
 
 ## Documentation
 
+Guides:
+
 - [Project builds](docs/project-builds.md): configuration, source languages and binding limits
 - [Toolchain packages](docs/toolchain-packages.md): installing compiler bundles
-- [Component library packages](docs/component-library-packages.md): package layout, runtimes and admission
+- [Component library packages](docs/component-library-packages.md): package layout and runtimes
+- [Go Component libraries](docs/component-library-go.md): native and Wasm Go modules
 - [Component dependencies](docs/component-dependencies.md): consuming Components from other packages
 - [Library publication](docs/library-publication.md): Cargo, npm, OCI and Go distribution
-- [Source compiler CI](docs/source-build-ci.md): acceptance setup for compilers
 - [Authored packages](docs/authored-packages.md): WIT and package metadata
+- [Target support](docs/target-support.md): consumers and features that work today
+
+[Verification and internals](docs/verification/README.md) covers the
+architecture decisions, admission rules, test suites, compiler CI and the
+detailed evidence behind the support tables.
 
 ## Security and limitations
 
