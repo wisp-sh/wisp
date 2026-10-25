@@ -14,7 +14,7 @@ pub(super) fn validate(compiler: Compiler, unit: &Unit) -> Result<()> {
     );
     let multiple = matches!(
         compiler,
-        Compiler::Swift | Compiler::Java | Compiler::Kotlin
+        Compiler::Swift | Compiler::Java | Compiler::Kotlin | Compiler::Csharp
     );
     ensure!(
         multiple || unit.sources.len() == 1,
@@ -29,10 +29,10 @@ pub(super) fn validate(compiler: Compiler, unit: &Unit) -> Result<()> {
             "{} requires entry naming the main class",
             compiler.name()
         );
-    } else if !matches!(compiler, Compiler::Python) {
+    } else if !matches!(compiler, Compiler::Python | Compiler::Csharp) {
         ensure!(
             unit.entry.is_none(),
-            "entry is supported by Java, Kotlin and Python"
+            "entry is supported by Java, Kotlin, C# and Python"
         );
     }
     if let Some(entry) = &unit.entry {
@@ -354,7 +354,10 @@ impl Toolchain {
             }
             if absolute.is_dir() {
                 ensure!(
-                    matches!(self.compiler, Compiler::Java | Compiler::Kotlin),
+                    matches!(
+                        self.compiler,
+                        Compiler::Java | Compiler::Kotlin | Compiler::Csharp
+                    ),
                     "source entrypoint must be a file"
                 );
                 directories.insert(absolute.clone());
@@ -395,7 +398,24 @@ impl Toolchain {
                 ]);
                 wit_args(&mut argv, &wit, resolve, world, false);
             }
-            Compiler::Csharp => wit_args(&mut argv, &wit, resolve, world, false),
+            Compiler::Csharp => {
+                argv.extend([
+                    "--project-root".into(),
+                    module_root.to_string_lossy().into_owned(),
+                ]);
+                if let Some(entry) = &unit.entry {
+                    argv.extend(["--entry".into(), entry.clone()]);
+                }
+                // Offline packages must be part of the snapshotted project.
+                let packages = module_root.join("packages");
+                if packages.is_dir() {
+                    argv.extend([
+                        "--package-dir".into(),
+                        packages.to_string_lossy().into_owned(),
+                    ]);
+                }
+                wit_args(&mut argv, &wit, resolve, world, false);
+            }
             Compiler::Bend => {
                 argv.extend([
                     "--project-root".into(),
@@ -590,7 +610,7 @@ fn source_extension(compiler: Compiler, path: &Path) -> bool {
         Compiler::Javascript | Compiler::Typescript => {
             matches!(extension, Some("js" | "mjs" | "jsx" | "ts" | "mts" | "tsx"))
         }
-        Compiler::Csharp => extension == Some("cs"),
+        Compiler::Csharp => matches!(extension, Some("cs" | "csproj")),
         Compiler::Python => extension == Some("py"),
         Compiler::Grain => extension == Some("gr"),
         Compiler::Bend => extension == Some("bend"),
@@ -623,6 +643,7 @@ fn snapshot(
         if name.starts_with('.')
             || name == "node_modules" && !javascript
             || matches!(name, "target" | "dist" | "build" | "work") && !in_dependency
+            || matches!(compiler, Compiler::Csharp) && matches!(name, "bin" | "obj")
             || matches!(name, "__pycache__" | "zig-out")
         {
             continue;
@@ -815,11 +836,15 @@ mod tests {
         assert!(validate(Compiler::Zig, &zig).is_err());
         let mut csharp = unit(Compiler::Csharp, "add.cs");
         assert!(validate(Compiler::Csharp, &csharp).is_ok());
-        csharp.entry = Some("Calculator.Add".into());
-        assert!(validate(Compiler::Csharp, &csharp).is_err());
+        csharp.entry = Some("Example.Calculator".into());
+        assert!(validate(Compiler::Csharp, &csharp).is_ok());
         csharp.entry = None;
         csharp.sources.push("helper.cs".into());
-        assert!(validate(Compiler::Csharp, &csharp).is_err());
+        assert!(validate(Compiler::Csharp, &csharp).is_ok());
+        assert!(source_extension(
+            Compiler::Csharp,
+            Path::new("Library.csproj")
+        ));
     }
 
     #[test]
@@ -884,6 +909,15 @@ mod tests {
                 )
                 .unwrap();
             }
+            if matches!(compiler, Compiler::Csharp) {
+                write(root.join("bin/old.dll"), "old build").unwrap();
+                write(root.join("obj/Generated.cs"), "old generated source").unwrap();
+                write(
+                    root.join("packages/Portable.1.0.0.nupkg"),
+                    "offline dependency",
+                )
+                .unwrap();
+            }
             let script = temp.path().join("compile.py");
             let fixture = temp.path().join("fixture.wasm");
             write(&fixture, &component).unwrap();
@@ -919,8 +953,11 @@ mod tests {
             let mut total = 0;
             let mut commands = Vec::new();
             let mut source_unit = unit(compiler, filename);
-            if matches!(compiler, Compiler::Python) {
+            if matches!(compiler, Compiler::Python | Compiler::Csharp) {
                 source_unit.project = Some(".".into());
+            }
+            if matches!(compiler, Compiler::Csharp) {
+                source_unit.entry = Some("Example.Api".into());
             }
             let bytes = toolchain
                 .compile(
@@ -949,6 +986,13 @@ mod tests {
                 let arguments = commands[0]["arguments"].as_array().unwrap();
                 assert!(arguments.iter().any(|value| value == "--wit"));
                 assert!(arguments.iter().any(|value| value == "--world"));
+                assert!(arguments.iter().any(|value| value == "--project-root"));
+                assert!(arguments.iter().any(|value| value == "--entry"));
+                assert!(arguments.iter().any(|value| value == "Example.Api"));
+                assert!(arguments.iter().any(|value| value == "--package-dir"));
+                assert!(files.contains_key("packages/Portable.1.0.0.nupkg"));
+                assert!(!files.contains_key("bin/old.dll"));
+                assert!(!files.contains_key("obj/Generated.cs"));
                 assert!(!arguments.iter().any(|value| value == "--component"));
             }
             if matches!(compiler, Compiler::Python) {

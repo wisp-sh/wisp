@@ -24,7 +24,7 @@ LANGUAGES = {
     "bend": (str(Path(__file__).resolve().parents[2] / "examples/build-bend/math.bend"), None),
     "goose": ("goose/examples/add.goose", None),
     "swift": ("swift/examples/add.swift", None),
-    "csharp": ("csharp/examples/add.cs", None),
+    "csharp": ("csharp/examples/library/Api/Api.csproj", "Example.Api"),
     "java": ("java/examples/Math.java", "Math"),
     "kotlin": ("kotlin/examples/Math.kt", "MathKt"),
 }
@@ -89,13 +89,21 @@ def main():
         work.mkdir()
         source_name, entry = LANGUAGES[language]
         source = tools / source_name
-        shutil.copytree(source.parent, work / "src")
+        if language == "csharp":
+            shutil.copytree(source.parent.parent, work / "src")
+            source_relative = "Api/Api.csproj"
+        else:
+            shutil.copytree(source.parent, work / "src")
+            source_relative = source.name
         config = (
             f'[package]\nname="test:{language}"\nversion="0.1.0"\n'
-            f'[build]\ncompiler="{language}"\nsources=["src/{source.name}"]\n'
+            f'[build]\ncompiler="{language}"\nsources=["src/{source_relative}"]\n'
         )
         if entry:
             config += f"entry={json.dumps(entry)}\n"
+        if language == "csharp":
+            config = config.replace('name="test:csharp"', 'name="example:csharp-library"').replace('version="0.1.0"', 'version="1.0.0"')
+            config += 'project="src"\nwit="src/library.wit"\nworld="library"\n'
         (work / "wisp.toml").write_text(config)
         row = {"language": language, "passed": False}
         try:
@@ -117,6 +125,17 @@ def main():
             (work / "invoke.log").write_text(call.stdout + call.stderr)
             if call.returncode or call.stdout.strip().splitlines()[-1:] != ["42"]:
                 raise RuntimeError(f"unexpected invocation result; see {work / 'invoke.log'}")
+            if language == "csharp":
+                for expression, expected_value in [
+                    ('greet("世界")', '"Hello, 世界!"'),
+                    ('advance({name: "Ana", age: 41})', 'ok({name: "Ana", age: 42})'),
+                    ('choose(some(high))', '[42]'),
+                ]:
+                    rich = subprocess.run([runtime, "run", "--invoke", expression, str(component)],
+                                          env=environment, capture_output=True, text=True)
+                    if rich.returncode or rich.stdout.strip() != expected_value:
+                        raise RuntimeError(f"{expression}: {rich.stdout}{rich.stderr}")
+                row["richInterfaceCalls"] = 3
             if attempts.read_text():
                 raise RuntimeError("source build attempted a native compiler")
             row.update(passed=True, result=42, componentSha256=expected,
