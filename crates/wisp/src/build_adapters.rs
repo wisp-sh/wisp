@@ -323,6 +323,7 @@ impl Toolchain {
         cache: &Path,
         resolve: &Resolve,
         world: WorldId,
+        python_inferred: bool,
         files: &mut BTreeMap<String, String>,
         total: &mut u64,
         commands: &mut Vec<Value>,
@@ -434,6 +435,9 @@ impl Toolchain {
             ]),
             Compiler::Python => {
                 if !legacy_python_contract(resolve, world) {
+                    if python_inferred {
+                        argv.push("--inferred".into());
+                    }
                     argv.extend([
                         "--cache-dir".into(),
                         cache.join("python").to_string_lossy().into_owned(),
@@ -917,6 +921,7 @@ mod tests {
                     &cache,
                     &resolve,
                     world,
+                    matches!(compiler, Compiler::Python),
                     &mut files,
                     &mut total,
                     &mut commands,
@@ -933,6 +938,7 @@ mod tests {
             assert_eq!(commands[0]["status"], 0);
             if matches!(compiler, Compiler::Python) {
                 let arguments = commands[0]["arguments"].as_array().unwrap();
+                assert!(arguments.iter().any(|value| value == "--inferred"));
                 let cache_index = arguments
                     .iter()
                     .position(|value| value == "--cache-dir")

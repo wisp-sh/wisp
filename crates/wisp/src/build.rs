@@ -1072,6 +1072,9 @@ pub fn run_cli(args: &[String]) -> Result<Value> {
                 &cache,
                 &resolve,
                 world,
+                inferred_contracts
+                    .as_ref()
+                    .is_some_and(|contracts| contracts.python_inferred.contains(name)),
                 &mut files,
                 &mut total,
                 &mut commands,

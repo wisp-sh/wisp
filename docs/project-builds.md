@@ -98,7 +98,9 @@ WAC and wasm-tools. It receives only WIT, never application source. It is a
 compiler-package bootstrap step, even when triggered by `wisp build`. Application
 source parsing, compilation, initialization, packaging and final validation run
 inside Wasm. The first contract build needs bootstrap-sized memory and disk;
-function-body edits reuse the snapshot. Install a newly bootstrapped Python
+function-body edits reuse the snapshot. Automatic provisioning currently requires
+Linux x86_64. Other compatible hosts can reuse an installed matching template.
+Install a newly bootstrapped Python
 package to get inference and offline provisioning assets. Legacy packages cannot
 supply them automatically.
 

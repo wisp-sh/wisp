@@ -161,6 +161,7 @@ pub(super) struct Function {
     result: Option<String>,
 }
 pub(super) struct Contracts {
+    pub python_inferred: BTreeSet<String>,
     pub package: PackageId,
     pub worlds: BTreeMap<String, WorldId>,
     pub functions: BTreeMap<String, BTreeMap<String, Function>>,
@@ -357,6 +358,7 @@ pub(super) fn generate(
     );
     let source_units = config.build.units.keys().cloned().collect::<Vec<_>>();
     let mut functions = BTreeMap::new();
+    let mut python_inferred = BTreeSet::new();
     let mut sources = BTreeMap::new();
     let mut module_imports = Vec::new();
     let mut rust_imports = Vec::new();
@@ -378,6 +380,7 @@ pub(super) fn generate(
                 let (body, hashes, inferred) =
                     adapters::python_contract(root, unit, &config.build.tools, resolve)?;
                 if inferred {
+                    python_inferred.insert(name.clone());
                     let interface = if source_units.len() == 1 {
                         "api".into()
                     } else {
@@ -632,6 +635,7 @@ pub(super) fn generate(
         );
     }
     Ok(Contracts {
+        python_inferred,
         package,
         worlds,
         functions,
