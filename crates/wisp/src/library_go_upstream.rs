@@ -7,7 +7,7 @@ use std::{
     process::Command,
 };
 
-pub const GENERATOR_VERSION: &str = "0.61.1";
+pub const GENERATOR_VERSION: &str = crate::generator_tools::WIT_BINDGEN_VERSION;
 pub const RUNTIME_MODULE: &str = "go.bytecodealliance.org/pkg";
 pub const RUNTIME_VERSION: &str = "v0.2.3";
 pub const RUNTIME_SUM: &str = "go.bytecodealliance.org/pkg v0.2.3 h1:So9zHg8ahW+TH1JmgBHgIYuKHcinLiEcpV1tqVEZvLA=\ngo.bytecodealliance.org/pkg v0.2.3/go.mod h1:OjA+V8g3uUFixeCKFfamm6sYhTJdg8fvwEdJ2GO0GSk=\n";
@@ -29,17 +29,7 @@ fn work_root() -> Result<PathBuf> {
 /// dependency installer, or compiler runs here. Keep the CLI and its runtime in
 /// step; both version checks also apply during archive admission/regeneration.
 pub fn generate(wit: &str, world: &str, module: &str) -> Result<BTreeMap<String, Vec<u8>>> {
-    let executable = std::env::var_os("WISP_WIT_BINDGEN").unwrap_or_else(|| "wit-bindgen".into());
-    let version = Command::new(&executable)
-        .arg("--version")
-        .output()
-        .context("run pinned wit-bindgen; set WISP_WIT_BINDGEN to the official 0.61.1 CLI")?;
-    ensure!(
-        version.status.success()
-            && std::str::from_utf8(&version.stdout)?.trim()
-                == format!("wit-bindgen-cli {GENERATOR_VERSION}"),
-        "Go bindings require wit-bindgen-cli {GENERATOR_VERSION}"
-    );
+    let executable = crate::generator_tools::wit_bindgen_executable()?;
     let temp = tempfile::Builder::new()
         .prefix("generate-")
         .tempdir_in(work_root()?)?;

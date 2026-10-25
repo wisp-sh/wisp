@@ -5,6 +5,7 @@ import hashlib
 import io
 from pathlib import Path
 import platform
+import subprocess
 import tarfile
 import urllib.request
 
@@ -38,6 +39,12 @@ def main():
             destination = args.out / path.name
             destination.write_bytes(archive.extractfile(member).read())
             destination.chmod(0o755 if path.name == "wit-bindgen" else 0o644)
+    executable = args.out.resolve() / 'wit-bindgen'
+    result = subprocess.run([executable, '--version'], text=True, capture_output=True, timeout=30)
+    if result.returncode or result.stdout.strip() not in (
+            'wit-bindgen-cli 0.61.1', 'wit-bindgen-cli 0.61.1 (0b0069d6c 2026-08-25)'):
+        raise SystemExit(f'wit-bindgen release failed its version check: {result.stdout}\n{result.stderr}')
+    print(result.stdout.strip())
     print(f"WISP_WIT_BINDGEN={args.out.resolve() / 'wit-bindgen'}")
 
 if __name__ == "__main__":

@@ -5,9 +5,38 @@ use serde_json::Value;
 use sha2::{Digest, Sha256, Sha512};
 use std::{
     collections::{BTreeMap, BTreeSet},
+    ffi::OsString,
     fs,
     path::{Path, PathBuf},
 };
+
+pub const WIT_BINDGEN_VERSION: &str = "0.61.1";
+
+fn pinned_wit_bindgen_version(output: &str) -> bool {
+    // The official macOS release includes the tag's Git revision and date.
+    matches!(
+        output.trim(),
+        "wit-bindgen-cli 0.61.1" | "wit-bindgen-cli 0.61.1 (0b0069d6c 2026-08-25)"
+    )
+}
+
+pub fn wit_bindgen_executable() -> Result<OsString> {
+    let executable = std::env::var_os("WISP_WIT_BINDGEN").unwrap_or_else(|| "wit-bindgen".into());
+    let version = std::process::Command::new(&executable)
+        .arg("--version")
+        .output()
+        .context("set WISP_WIT_BINDGEN to wit-bindgen 0.61.1; tools/upstream-bindings/setup.py installs a verified release")?;
+    ensure!(
+        version.status.success()
+            && pinned_wit_bindgen_version(std::str::from_utf8(&version.stdout)?),
+        "guest bindings require wit-bindgen-cli {WIT_BINDGEN_VERSION}; {:?} returned {}: stdout={:?}, stderr={:?}",
+        executable,
+        version.status,
+        String::from_utf8_lossy(&version.stdout).trim(),
+        String::from_utf8_lossy(&version.stderr).trim()
+    );
+    Ok(executable)
+}
 
 /// Run the pinned upstream guest generator. Generated source is data, and all
 /// application compilation remains inside the language's Wasm toolchain.
@@ -17,14 +46,7 @@ pub fn wit_bindgen(
     language: &str,
     options: &[&str],
 ) -> Result<BTreeMap<String, Vec<u8>>> {
-    let executable = std::env::var_os("WISP_WIT_BINDGEN").unwrap_or_else(|| "wit-bindgen".into());
-    let version=std::process::Command::new(&executable).arg("--version").output()
-        .context("set WISP_WIT_BINDGEN to wit-bindgen 0.61.1; tools/upstream-bindings/setup.py installs a verified release")?;
-    ensure!(
-        version.status.success()
-            && std::str::from_utf8(&version.stdout)?.trim() == "wit-bindgen-cli 0.61.1",
-        "guest bindings require wit-bindgen-cli 0.61.1"
-    );
+    let executable = wit_bindgen_executable()?;
     let base = std::env::var_os("WISP_WIT_BINDGEN_WORKDIR")
         .map(PathBuf::from)
         .or_else(|| {
@@ -262,6 +284,23 @@ pub fn node() -> Result<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn accepts_both_official_release_version_banners() {
+        assert!(pinned_wit_bindgen_version("wit-bindgen-cli 0.61.1\n"));
+        assert!(pinned_wit_bindgen_version(
+            "wit-bindgen-cli 0.61.1 (0b0069d6c 2026-08-25)\n"
+        ));
+        for invalid in [
+            "wit-bindgen-cli 0.61.0",
+            "wit-bindgen-cli 0.61.10",
+            "wit-bindgen-cli 0.61.1-dev",
+            "wit-bindgen-cli 0.61.1 (different build)",
+            "unexpected\nwit-bindgen-cli 0.61.1",
+        ] {
+            assert!(!pinned_wit_bindgen_version(invalid));
+        }
+    }
 
     #[test]
     fn authenticates_transitive_generator_bytes_and_rejects_injection() {
