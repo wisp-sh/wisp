@@ -1,0 +1,11 @@
+[package]
+name = "demo:c-math"
+version = "0.1.0"
+[metadata]
+description = "C standard library inside a Wasm-hosted compiler build"
+license = "MIT"
+[build]
+compiler = "clang"
+wit = "wit"
+world = "library"
+sources = ["math.c"]

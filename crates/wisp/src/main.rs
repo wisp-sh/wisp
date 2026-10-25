@@ -1,10 +1,7 @@
 mod build;
-mod build_bindings;
 mod build_go;
-mod build_go_memory;
 mod build_llvm;
 mod build_rust;
-mod build_values;
 mod compiler_hosts;
 mod dependencies;
 mod generator_tools;

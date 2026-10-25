@@ -112,7 +112,7 @@ def preflight(args):
     compiler_runtime = executable(args.compiler_wasmtime)
     tools = {key: executable(getattr(args, key)) for key in ('cli', 'wasmtime', 'node', 'jco', 'cargo', 'native_rustc')}
     adapter = args.preview1_adapter.resolve(strict=True)
-    fixture = args.fixture.resolve() if args.fixture else args.rust_toolchain.resolve() / 'examples/serde'
+    fixture = args.fixture.resolve()
     require((fixture / 'src/lib.rs').is_file() and (fixture / 'Cargo.lock').is_file(), 'Serde fixture is missing')
     lock = tomllib.loads((fixture / 'Cargo.lock').read_text())
     vendor = args.vendor_dir.resolve(strict=True)
@@ -265,9 +265,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     for name in ('candidate', 'cli', 'wasmtime', 'vendor-dir', 'preview1-adapter', 'node', 'jco', 'out'):
         parser.add_argument('--' + name, type=Path, required=True)
-    fixture_source = parser.add_mutually_exclusive_group(required=True)
-    fixture_source.add_argument('--rust-toolchain', dest='rust_toolchain', type=Path)
-    fixture_source.add_argument('--fixture', type=Path, help='ordinary Serde Cargo project, independent of compiler source checkout')
+    parser.add_argument('--fixture', type=Path, default=ROOT / 'tests/source-build/fixtures/serde',
+                        help='Serde Cargo project using the generated WIT Guest trait')
     parser.add_argument('--compiler-wasmtime', type=Path, help='Wisp shared Rust compiler execution host')
     parser.add_argument('--compiler-sha256', required=True, help='SHA from the successful source-build receipt')
     parser.add_argument('--cargo', type=Path, default=os.environ.get('WISP_CARGO') or shutil.which('cargo'))
@@ -347,10 +346,14 @@ def main():
         project.mkdir()
         shutil.copytree(fixture, project / 'rust', ignore=shutil.ignore_patterns('target', 'vendor', '.wisp-cache', '__pycache__'))
         shutil.copytree(vendor, project / 'rust/vendor')
+        (project / 'wit').mkdir()
+        (project / 'wit/world.wit').write_text(
+            'package demo:rust-serde-candidate@0.1.0;\n'
+            'world library { export roundtrip-score: func(a: u32, b: u32) -> u32; }\n')
         (project / 'DEPENDENCY-NOTICES.txt').write_text(notice)
         (project / 'wisp.toml').write_text('[package]\nname="demo:rust-serde-candidate"\nversion="0.1.0"\n\n'
             '[metadata]\ndescription="Unmodified Serde compiled inside the source-built Rust Wasm compiler"\n'
-            'license="MIT"\nnotice-files=["DEPENDENCY-NOTICES.txt"]\n\n[build]\ncompiler="rust"\nproject="rust"\n')
+            'license="MIT"\nnotice-files=["DEPENDENCY-NOTICES.txt"]\n\n[build]\ncompiler="rust"\nproject="rust"\nwit="wit"\nworld="library"\n')
         inputs['projectFiles'] = {str(path.relative_to(project)): digest(path) for path in sorted(project.rglob('*')) if path.is_file()}
         json_write(output / 'inputs.json', inputs)
         release = output / 'release'
@@ -358,7 +361,7 @@ def main():
         run([cli, 'library', 'validate', release], 'host-package-admission')
         receipt = json_read(release / 'build/build.json')
         tool = receipt['tools']['rust']
-        require(receipt['contractMode'] == 'inferred' and receipt['packageGenerated'] is True
+        require(receipt['contractMode'] == 'wit' and receipt['packageGenerated'] is True
                 and tool['compilerSha256'] == args.compiler_sha256 and Path(tool['path']).resolve() == candidate
                 and tool['runner']['sha256'] == inputs['runnerSha256']
                 and tool['manifestSha256'] == inputs['manifestSha256']
@@ -372,7 +375,7 @@ def main():
             require(any(item.get('name') == package and item.get('version') == expected['version'] and item.get('source') == 'vendored'
                         for item in raw_report['dependencies']), f'expected vendored crate missing: {package}')
         staged = release / 'build/units/application/source'
-        for relative in ('Cargo.toml', 'Cargo.lock', 'src/lib.rs', 'src/main.rs'):
+        for relative in ('Cargo.toml', 'Cargo.lock', 'src/lib.rs'):
             require(digest(staged / relative) == digest(fixture / relative), f'Serde fixture was modified before compilation: {relative}')
         json_write(output / 'macro-evidence.json', dict(macro_evidence, rawReportPath=str(raw_report_path), rawReportSha256=digest(raw_report_path),
             pathMapping='Original execution/trace strings remain unchanged. Files moved from originalStagingRoot to publishedReleaseRoot during atomic admission.'))

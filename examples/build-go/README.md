@@ -31,7 +31,10 @@ isolation, filesystem denial, allocation and garbage collection.
 
 Public package-level functions become exports. Private helpers and `main`
 remain implementation code. Scalar signatures, `int`, `uint`, and local scalar
-types and aliases are supported. Other public signature shapes are rejected
-with a source-level error. There are no handwritten WIT files, special export
-names, directives, or binding files. Generated contracts and glue remain in the
-build output for inspection.
+types and aliases are supported. Rich Go APIs also support strings, slices,
+structs with exported fields, optional pointer values, named integer enums, and
+ordinary `(value, error)` results. There are no handwritten WIT files, special
+export names, directives, or binding files. Wisp infers the contract and adapts
+native values to upstream wit-bindgen types. The upstream generator handles
+canonical ABI layout, allocation, and post-return cleanup. Generated contracts
+and glue remain in the build output for inspection.

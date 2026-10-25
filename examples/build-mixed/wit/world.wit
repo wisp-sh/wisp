@@ -1,5 +1,13 @@
 package demo:mixed-math@0.1.0;
-interface arithmetic { add: func(a: u32, b: u32) -> u32; }
-interface calculator { doubled-sum: func(a: u32, b: u32) -> u32; }
+interface arithmetic {
+  enum mode { fast, careful }
+  add: func(a: u32, b: u32) -> u32;
+  labels: func(value: list<string>) -> list<string>;
+  selected: func(value: option<mode>) -> option<mode>;
+}
+interface calculator {
+  doubled-sum: func(a: u32, b: u32) -> u32;
+  rich-check: func() -> u32;
+}
 world math { export arithmetic; }
 world application { import arithmetic; export calculator; }

@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+mod wisp_bindings;
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 struct Entry {
@@ -19,7 +20,7 @@ struct Envelope<'a, T> {
     payload: T,
 }
 
-pub fn roundtrip_score(a: u32, b: u32) -> u32 {
+fn roundtrip_score(a: u32, b: u32) -> u32 {
     let envelope = Envelope {
         label: "borrowed",
         payload: vec![a, b],
@@ -49,3 +50,11 @@ pub fn roundtrip_score(a: u32, b: u32) -> u32 {
     assert_eq!(score, decoded);
     decoded.entries.into_iter().map(|entry| entry.value).sum()
 }
+
+struct Serde;
+impl wisp_bindings::Guest for Serde {
+    fn roundtrip_score(a: u32, b: u32) -> u32 {
+        roundtrip_score(a, b)
+    }
+}
+wisp_bindings::export!(Serde with_types_in wisp_bindings);

@@ -2,7 +2,11 @@
 #[path = "build_adapters.rs"]
 mod adapters;
 #[path = "build_infer.rs"]
-mod inference;
+mod infer;
+#[path = "build_inferred.rs"]
+mod inferred;
+#[path = "build_upstream.rs"]
+mod upstream;
 use anyhow::{Context, Result, bail, ensure};
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -16,6 +20,19 @@ use std::{
 use wit_parser::{Resolve, WorldId, WorldItem};
 const MAX_SOURCE: u64 = 32 * 1024 * 1024;
 const MAX_COMPONENT: u64 = 16 * 1024 * 1024;
+fn check_inferred_sources(
+    contracts: &infer::Contracts,
+    name: &str,
+    files: &BTreeMap<String, String>,
+) -> Result<()> {
+    ensure!(
+        contracts.sources[name]
+            .iter()
+            .all(|(path, hash)| files.get(path) == Some(hash)),
+        "source changed while inferring the public API; rebuild the project"
+    );
+    Ok(())
+}
 pub(super) fn digest(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
 }
@@ -50,7 +67,7 @@ struct Config {
     metadata: toml::Table,
     build: Build,
 }
-/// An admitted library installed by `wisp library fetch`, independent of its source language.
+/// An admitted library installed by `wisp library fetch`.
 #[derive(Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct InstalledPackage {
@@ -87,6 +104,7 @@ fn default_root() -> String {
 struct Tools {
     wasmtime: Option<PathBuf>,
     clang: Option<PathBuf>,
+    clang_wasi_sysroot: Option<PathBuf>,
     go: Option<PathBuf>,
     rust: Option<PathBuf>,
     rust_wasmtime: Option<PathBuf>,
@@ -267,75 +285,12 @@ fn tool_path(root: &Path, configured: &Option<PathBuf>, environment: &str) -> Re
     path.canonicalize()
         .with_context(|| format!("tool {}", path.display()))
 }
-fn source_type(
-    binding: &mut crate::build_bindings::Scalar,
-    source: &inference::SourceType,
-    compiler: Compiler,
-) -> Result<()> {
-    binding.generated = false;
-    use crate::build_bindings::ValueKind;
-    use inference::SourceKind;
-    match compiler {
-        Compiler::Rust => binding.rust = source.name.clone(),
-        Compiler::Go => binding.go = source.name.clone(),
-        Compiler::Clang => binding.cpp = source.name.clone(),
-        _ => bail!("adapter compilers provide their own bindings"),
-    }
-    match (&mut binding.kind, &source.kind) {
-        (ValueKind::Record { fields, .. }, SourceKind::Record(source)) => {
-            ensure!(
-                fields.len() == source.len(),
-                "inferred record field count differs from WIT"
-            );
-            for (field, source) in fields.iter_mut().zip(source) {
-                ensure!(
-                    field.name == heck::ToSnakeCase::to_snake_case(source.wire.as_str()),
-                    "inferred record field differs from WIT"
-                );
-                match compiler {
-                    Compiler::Rust | Compiler::Clang => field.rust_name = source.name.clone(),
-                    Compiler::Go => field.go_name = source.name.clone(),
-                    _ => bail!("adapter compilers provide their own bindings"),
-                }
-                source_type(&mut field.ty, &source.ty, compiler)?;
-            }
-        }
-        (
-            ValueKind::Result { ok, err },
-            SourceKind::Result {
-                ok: source_ok,
-                err: source_err,
-            },
-        ) => {
-            if let (Some(ty), Some(source)) = (ok, source_ok) {
-                source_type(ty, source, compiler)?;
-            }
-            if let (Some(ty), Some(source)) = (err, source_err) {
-                source_type(ty, source, compiler)?;
-            }
-        }
-        _ => {}
-    }
-    Ok(())
-}
 fn tool(root: &Path, configured: &Option<PathBuf>, environment: &str) -> Result<Tool> {
     let path = tool_path(root, configured, environment)?;
     Ok(Tool {
         sha256: digest(&read(&path, 256 * 1024 * 1024)?),
         path,
     })
-}
-// A checked-in copy makes the generated ABI visible without allowing it to
-// drift from the selected WIT world. Check both the original and staged copy.
-fn checked_go_bindings(path: &Path, generated: &str) -> Result<bool> {
-    if !path.try_exists()? {
-        return Ok(false);
-    }
-    ensure!(
-        read(path, MAX_SOURCE)? == generated.as_bytes(),
-        "checked-in wisp_bindings.go differs from generated WIT bindings; move it aside, build again, then copy build/units/<unit>/source/wisp_bindings.go back into the project"
-    );
-    Ok(true)
 }
 fn input(root: &Path, path: &Path) -> Result<PathBuf> {
     ensure!(
@@ -734,7 +689,7 @@ pub fn run_cli(args: &[String]) -> Result<Value> {
     );
     let mut resolve = Resolve::default();
     let inferred_contracts = if inferred {
-        Some(inference::generate(&mut config, root, &mut resolve)?)
+        Some(infer::generate(&mut config, root, &mut resolve)?)
     } else {
         None
     };
@@ -762,8 +717,8 @@ pub fn run_cli(args: &[String]) -> Result<Value> {
         ordered.len() == config.build.units.len(),
         "all build units must be reachable from build.root"
     );
-    let package = if let Some(inferred) = &inferred_contracts {
-        inferred.package
+    let package = if let Some(contracts) = &inferred_contracts {
+        contracts.package
     } else {
         let path = config.build.wit.clone().unwrap_or_else(|| "wit".into());
         let path = input(root, &path)?;
@@ -780,7 +735,6 @@ pub fn run_cli(args: &[String]) -> Result<Value> {
         "build WIT identity mismatch"
     );
     let mut worlds = BTreeMap::new();
-    let mut bindings = BTreeMap::new();
     let mut prebuilt = BTreeMap::new();
     for (name, unit) in &config.build.units {
         crate::identity::parse(&format!("build:{name}"))?;
@@ -789,8 +743,8 @@ pub fn run_cli(args: &[String]) -> Result<Value> {
             "unsupported build optimization: {:?}",
             unit.optimization
         );
-        let world = if let Some(inferred) = &inferred_contracts {
-            inferred.worlds[name]
+        let world = if let Some(contracts) = &inferred_contracts {
+            contracts.worlds[name]
         } else {
             resolve.select_world(
                 &[package],
@@ -834,12 +788,11 @@ pub fn run_cli(args: &[String]) -> Result<Value> {
                 "Go unit {name} requires project; sources, includes and optimization overrides are not supported"
             ),
             (Some(Compiler::Rust), None) => ensure!(
-                inferred
-                    && unit.project.is_some()
+                unit.project.is_some()
                     && unit.sources.is_empty()
                     && unit.includes.is_empty()
                     && unit.optimization.is_none(),
-                "rust unit {name} requires an inferred project; sources, includes, authored WIT and optimization overrides are not supported"
+                "rust unit {name} requires a project; sources, includes and optimization overrides are not supported"
             ),
             (Some(compiler), None) if compiler.is_adapter() => {
                 adapters::validate(compiler, unit).with_context(|| {
@@ -908,89 +861,6 @@ pub fn run_cli(args: &[String]) -> Result<Value> {
             input(root, path)?;
         }
         worlds.insert(name.clone(), world);
-        if unit.compiler.is_some_and(|compiler| !compiler.is_adapter()) {
-            let mut generated =
-                if matches!(unit.compiler, Some(Compiler::Clang | Compiler::Rust)) && inferred {
-                    // Package headers provide the imports, including APIs that share function names.
-                    let mut exports = resolve.clone();
-                    exports.worlds[world].imports.clear();
-                    crate::build_bindings::bindings(&exports, world)?
-                } else {
-                    crate::build_bindings::bindings(&resolve, world)?
-                };
-            if let Some(inferred) = &inferred_contracts {
-                for binding in generated.iter_mut().filter(|b| !b.import) {
-                    let function = &inferred.functions[name][&binding.name];
-                    binding.go_error_result = function.go_error_result;
-                    for (binding, source) in binding.params.iter_mut().zip(&function.source_params)
-                    {
-                        source_type(binding, source, unit.compiler.unwrap())?;
-                    }
-                    if let (Some(binding), Some(source)) =
-                        (&mut binding.result, &function.source_result)
-                    {
-                        source_type(binding, source, unit.compiler.unwrap())?;
-                    }
-                    match unit.compiler.unwrap() {
-                        Compiler::Go => {
-                            binding.go_name = function.original.clone();
-                            for (param, ty) in binding.params.iter_mut().zip(&function.go_params) {
-                                param.go = ty.clone();
-                            }
-                            if let (Some(result), Some(ty)) =
-                                (&mut binding.result, &function.go_result)
-                            {
-                                result.go = ty.clone();
-                            }
-                        }
-                        Compiler::Clang => binding.c_name = function.original.clone(),
-                        Compiler::Rust => {
-                            binding.rust_name = function.original.clone();
-                            for (param, ty) in binding.params.iter_mut().zip(&function.rust_params)
-                            {
-                                param.rust = ty.clone();
-                            }
-                            if let (Some(result), Some(ty)) =
-                                (&mut binding.result, &function.rust_result)
-                            {
-                                result.rust = ty.clone();
-                            }
-                        }
-                        _ => unreachable!("adapter bindings are generated by their compiler"),
-                    }
-                }
-            }
-            if matches!(unit.compiler, Some(Compiler::Go)) {
-                generated.retain(|binding| {
-                    if !binding.import {
-                        return true;
-                    }
-                    let import = binding.module.as_deref().unwrap_or(&binding.name);
-                    !unit.dependencies.get(import).is_some_and(|dependency| {
-                        matches!(
-                            &config.build.units[dependency].component,
-                            Some(ComponentInput::Module(_))
-                        )
-                    })
-                });
-                let project = input(root, unit.project.as_ref().unwrap())?;
-                checked_go_bindings(
-                    &project.join("wisp_bindings.go"),
-                    &crate::build_bindings::go(&generated),
-                )?;
-            }
-            if matches!(unit.compiler, Some(Compiler::Clang))
-                && crate::build_values::needed(&generated)
-            {
-                ensure!(
-                    unit.sources.iter().all(|path| path
-                        .extension()
-                        .is_some_and(|ext| matches!(ext.to_str(), Some("cc" | "cpp" | "cxx")))),
-                    "unsupported-build-binding-type: strings, buffers, records and results require C++ source; freestanding C bindings support scalars"
-                );
-            }
-            bindings.insert(name.clone(), generated);
-        }
     }
     let output = output
         .map(PathBuf::from)
@@ -1039,6 +909,34 @@ pub fn run_cli(args: &[String]) -> Result<Value> {
         .any(|u| matches!(u.compiler, Some(Compiler::Clang)))
     {
         Some(tool(root, &config.build.tools.clang, "WISP_CLANG")?)
+    } else {
+        None
+    };
+    let clang_sysroot = if clang.is_some() {
+        let configured = std::env::var_os("WISP_CLANG_WASI_SYSROOT")
+            .map(PathBuf::from)
+            .or_else(|| config.build.tools.clang_wasi_sysroot.clone());
+        let selected = match configured {
+            Some(path) => Some(path),
+            None => crate::toolchain_install::resolve("WISP_CLANG_WASI_SYSROOT")?,
+        };
+        match selected {
+            Some(path) => {
+                let path = if path.is_absolute() {
+                    path
+                } else {
+                    root.join(path)
+                }
+                .canonicalize()?;
+                ensure!(
+                    path.join("include").is_dir()
+                        && path.join("lib/wasm32-wasip1/libc.a").is_file(),
+                    "Clang WASI sysroot is missing target headers or libc"
+                );
+                Some(path)
+            }
+            None => None,
+        }
     } else {
         None
     };
@@ -1105,7 +1003,7 @@ pub fn run_cli(args: &[String]) -> Result<Value> {
     } else {
         None
     };
-    let adapter = if go.is_some() || rust.is_some() {
+    let adapter = if go.is_some() || rust.is_some() || clang_sysroot.is_some() {
         let adapter = tool(
             root,
             &config.build.tools.preview1_adapter,
@@ -1178,13 +1076,8 @@ pub fn run_cli(args: &[String]) -> Result<Value> {
                 &mut total,
                 &mut commands,
             )?;
-            if let Some(inferred) = &inferred_contracts {
-                ensure!(
-                    inferred.sources[name]
-                        .iter()
-                        .all(|(path, hash)| files.get(path) == Some(hash)),
-                    "source changed while inferring the public API; rebuild the project"
-                );
+            if let Some(contracts) = &inferred_contracts {
+                check_inferred_sources(contracts, name, &files)?;
             }
             component
         } else {
@@ -1231,41 +1124,30 @@ pub fn run_cli(args: &[String]) -> Result<Value> {
                             path.strip_prefix(root)?.to_str().context("include path")?
                         ));
                     }
-                    if let Some(inferred) = &inferred_contracts {
-                        ensure!(
-                            inferred.sources[name]
-                                .iter()
-                                .all(|(path, hash)| files.get(path) == Some(hash)),
-                            "source changed while inferring the public API; rebuild the project"
-                        );
-                    }
-                    let is_cpp = language.unwrap();
-                    let (mut header, glue) = if is_cpp
-                        && inferred_contracts
-                            .as_ref()
-                            .is_some_and(|contracts| contracts.cpp_headers.contains_key(name))
-                    {
-                        crate::build_values::c(&bindings[name], is_cpp, &sources)
-                    } else {
-                        crate::build_bindings::c(&bindings[name], is_cpp, &sources)
-                    };
-                    if inferred {
-                        header = "#pragma once\n#include \"wisp_types.hpp\"\n#ifdef __cplusplus\n#define WISP_BOOL bool\n#else\n#define WISP_BOOL _Bool\n#endif\n".into();
-                    }
+                    let is_cpp = language.unwrap() || inferred;
+                    ensure!(
+                        clang_sysroot.is_some(),
+                        "C/C++ compilation requires WISP_CLANG_WASI_SYSROOT or build.tools.clang-wasi-sysroot"
+                    );
                     let generated = work.join("bindings");
-                    write(
-                        generated.join("wisp_types.hpp"),
-                        crate::build_values::types_header(),
-                    )?;
-                    write(generated.join("wisp.h"), header)?;
-                    if let Some(contracts) = &inferred_contracts {
+                    let (glue, objects) = if let Some(contracts) = &inferred_contracts {
+                        check_inferred_sources(contracts, name, &files)?;
+                        let result = inferred::cpp::clang(
+                            &resolve,
+                            world,
+                            &contracts.functions[name],
+                            &sources,
+                            &generated,
+                        )?;
                         if let Some(headers) = contracts.cpp_headers.get(name) {
-                            ensure!(is_cpp, "installed package headers require C++ sources");
-                            for (path, bytes) in headers {
-                                write(generated.join(path), bytes)?;
+                            for (header, contents) in headers {
+                                write(generated.join(header), contents)?;
                             }
                         }
-                    }
+                        result
+                    } else {
+                        upstream::clang(&resolve, world, is_cpp, &sources, &generated)?
+                    };
                     let filename = if is_cpp { "unit.cpp" } else { "unit.c" };
                     write(generated.join(filename), glue)?;
                     let mut args = vec![
@@ -1276,6 +1158,33 @@ pub fn run_cli(args: &[String]) -> Result<Value> {
                         "-I".into(),
                         "/bindings".into(),
                     ];
+                    let mut mounts: Vec<(&Path, &str)> = vec![
+                        (&source, "/src"),
+                        (&generated, "/bindings"),
+                        (&scratch, "/build"),
+                    ];
+                    let sdk_root = clang_sysroot
+                        .as_ref()
+                        .map(|sysroot| {
+                            sysroot
+                                .parent()
+                                .and_then(Path::parent)
+                                .context("WASI SDK sysroot parent")
+                        })
+                        .transpose()?;
+                    if let Some(sdk) = sdk_root {
+                        mounts.push((sdk, "/wasi-sdk"));
+                        args.extend([
+                            "--wasi-sysroot".into(),
+                            "/wasi-sdk/share/wasi-sysroot".into(),
+                        ]);
+                        if is_cpp {
+                            args.push("-std=c++23".into());
+                        }
+                    }
+                    for object in objects {
+                        args.extend(["--link-object".into(), format!("/bindings/{object}")]);
+                    }
                     for include in includes {
                         args.extend(["-I".into(), include]);
                     }
@@ -1284,11 +1193,7 @@ pub fn run_cli(args: &[String]) -> Result<Value> {
                         &clang.as_ref().unwrap().path,
                         true,
                         &args,
-                        &[
-                            (&source, "/src"),
-                            (&generated, "/bindings"),
-                            (&scratch, "/build"),
-                        ],
+                        &mounts,
                         &[],
                         &cache,
                         &llvm.as_ref().unwrap().modules,
@@ -1300,14 +1205,6 @@ pub fn run_cli(args: &[String]) -> Result<Value> {
                 Compiler::Go => {
                     let project = input(root, unit.project.as_ref().unwrap())?;
                     copy_tree(&project, &project, &source, true, &mut files, &mut total)?;
-                    if let Some(inferred) = &inferred_contracts {
-                        ensure!(
-                            inferred.sources[name]
-                                .iter()
-                                .all(|(path, hash)| files.get(path) == Some(hash)),
-                            "source changed while inferring the public API; rebuild the project"
-                        );
-                    }
                     for dependency in unit.dependencies.values() {
                         if let Some(ComponentInput::Module(module)) =
                             &config.build.units[dependency].component
@@ -1319,11 +1216,18 @@ pub fn run_cli(args: &[String]) -> Result<Value> {
                                 "Go dependency changed while staging the build");
                         }
                     }
-                    let generated = crate::build_bindings::go(&bindings[name]);
-                    let binding_path = source.join("wisp_bindings.go");
-                    if !checked_go_bindings(&binding_path, &generated)? {
-                        write(binding_path, generated)?;
+                    if let Some(contracts) = &inferred_contracts {
+                        check_inferred_sources(contracts, name, &files)?;
+                        inferred::go::generate(
+                            &resolve,
+                            world,
+                            &contracts.functions[name],
+                            &source,
+                        )?;
+                    } else {
+                        upstream::go(&resolve, world, &source)?;
                     }
+                    crate::build_go::stage_wit_runtime(&source, go.as_ref().unwrap())?;
                     let core = crate::build_go::compile(
                         runtime.as_ref().unwrap(),
                         go.as_ref().unwrap(),
@@ -1332,26 +1236,11 @@ pub fn run_cli(args: &[String]) -> Result<Value> {
                         &cache,
                         &mut commands,
                     )?;
-                    if crate::build_values::needed(&bindings[name]) {
-                        crate::build_go_memory::reserve_values(
-                            &core,
-                            &crate::build_values::go_post_returns(&bindings[name]),
-                        )?
-                    } else {
-                        crate::build_go_memory::reserve(&core)?
-                    }
+                    core
                 }
                 Compiler::Rust => {
                     let project = input(root, unit.project.as_ref().unwrap())?;
                     files = crate::build_rust::snapshot(&project, &source)?;
-                    if let Some(inferred) = &inferred_contracts {
-                        ensure!(
-                            inferred.sources[name]
-                                .iter()
-                                .all(|(path, hash)| files.get(path) == Some(hash)),
-                            "source changed while inferring the public API; rebuild the project"
-                        );
-                    }
                     for dependency in crate::build_rust::guest_dependencies(&source)? {
                         let hash = dependency.descriptor["component"]["sha256"]
                             .as_str()
@@ -1363,30 +1252,48 @@ pub fn run_cli(args: &[String]) -> Result<Value> {
                             "Rust dependency changed while staging the build"
                         );
                     }
-                    let project = crate::build_rust::project(&source)?;
-                    let generated = crate::build_bindings::rust(&bindings[name], &project.library)?;
-                    write(work.join("bindings/wisp.rs"), &generated)?;
+                    let wrapper = if let Some(contracts) = &inferred_contracts {
+                        check_inferred_sources(contracts, name, &files)?;
+                        let project = crate::build_rust::project(&source)?;
+                        let wrapper = inferred::rust::rust(
+                            &resolve,
+                            world,
+                            &contracts.functions[name],
+                            &project.library,
+                        )?;
+                        write(work.join("bindings/wisp.rs"), &wrapper)?;
+                        Some(wrapper)
+                    } else {
+                        upstream::rust(&resolve, world, &source)?;
+                        None
+                    };
                     crate::build_rust::compile(
                         rust.as_ref().unwrap(),
                         &source,
                         &scratch,
-                        &generated,
+                        wrapper.as_deref(),
                         &cache,
                         &mut commands,
                     )?
                 }
                 _ => unreachable!("adapter compiler handled separately"),
             };
-            wit_component::embed_component_metadata(
-                &mut core,
-                &resolve,
-                world,
-                wit_component::StringEncoding::UTF8,
-            )?;
+            if matches!(unit.compiler, Some(Compiler::Go)) {
+                // C/C++ metadata objects and generated Rust sections already
+                // describe the selected world. Go emits source bindings only.
+                wit_component::embed_component_metadata(
+                    &mut core,
+                    &resolve,
+                    world,
+                    wit_component::StringEncoding::UTF8,
+                )?;
+            }
             let mut encoder = wit_component::ComponentEncoder::default()
                 .validate(true)
                 .module(&core)?;
-            if matches!(unit.compiler, Some(Compiler::Go | Compiler::Rust)) {
+            if matches!(unit.compiler, Some(Compiler::Go | Compiler::Rust))
+                || matches!(unit.compiler, Some(Compiler::Clang)) && clang_sysroot.is_some()
+            {
                 encoder = encoder.adapter(
                     "wasi_snapshot_preview1",
                     &read(&adapter.as_ref().unwrap().path, MAX_COMPONENT)?,
@@ -1400,6 +1307,8 @@ pub fn run_cli(args: &[String]) -> Result<Value> {
             component.len() as u64 <= MAX_COMPONENT,
             "build Component size limit"
         );
+        adapters::validate_component(&component, &resolve, world)
+            .with_context(|| format!("compiled unit {name} differs from its WIT contract"))?;
         write(work.join("component.wasm"), &component)?;
         let world_wit = world_text(&resolve, world)?;
         write(work.join("world.wit"), &world_wit)?;
@@ -1521,7 +1430,7 @@ pub fn run_cli(args: &[String]) -> Result<Value> {
     for (name, toolchain) in &adapter_toolchains {
         tools[*name] = toolchain.receipt();
     }
-    let receipt = json!({"schema":1,"kind":"source-build","contractMode":if inferred {"inferred"}else{"authored"},"identity":config.package.name,"version":config.package.version,"configSha256":digest(&config_bytes),"root":config.build.root,"tools":tools,"units":reports,"componentSha256":digest(&component),"packageGenerated":!component_only});
+    let receipt = json!({"schema":1,"kind":"source-build","contractMode":if inferred {"inferred"}else{"wit"},"identity":config.package.name,"version":config.package.version,"configSha256":digest(&config_bytes),"root":config.build.root,"tools":tools,"units":reports,"componentSha256":digest(&component),"packageGenerated":!component_only});
     write(
         build.join("build.json"),
         serde_json::to_vec_pretty(&receipt)?,

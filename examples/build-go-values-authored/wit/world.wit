@@ -1,0 +1,37 @@
+package demo:go-values@0.1.0;
+
+interface api {
+  enum mode { fast, careful }
+  record packet {
+    label: string,
+    data: list<u8>,
+    sequence: u64,
+    enabled: bool,
+  }
+  record wide {
+    a: string, b: string, c: string,
+    d: string, e: string, f: string,
+    g: string, h: string, i: string,
+  }
+  record wisp-note { value: string }
+  record batch {
+    labels: list<string>,
+    selected: option<mode>,
+    modes: list<mode>,
+  }
+
+  echo: func(value: string) -> string;
+  buffer: func(value: list<u8>) -> list<u8>;
+  packet-value: func(value: packet) -> packet;
+  checked: func(success: bool) -> result<packet, string>;
+  wide-value: func(value: wide) -> wide;
+  note: func(value: wisp-note) -> wisp-note;
+  labels: func(value: list<string>) -> list<string>;
+  selected: func(value: option<mode>) -> option<mode>;
+  modes: func(value: list<mode>) -> list<mode>;
+  choices: func(value: list<option<mode>>) -> list<option<mode>>;
+  batch-value: func(value: batch) -> batch;
+  result-value: func(value: result<packet, string>) -> result<packet, string>;
+}
+
+world library { export api; }

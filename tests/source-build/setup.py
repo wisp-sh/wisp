@@ -123,6 +123,10 @@ def main():
     environment["PATH"] = os.pathsep.join((str(node_bin), str(go_bin), environment["PATH"]))
     run([node_bin / "node", "--version"])
     run([go_bin / "go", "version"])
+    generator = support / "wit-bindgen"
+    run([sys.executable, ROOT / "tools/upstream-bindings/setup.py", "--out", generator])
+    generator = generator / "wit-bindgen"
+    require(run([generator, "--version"]).strip() == "wit-bindgen-cli 0.61.1", "binding generator version mismatch")
     js = support / "js"
     js.mkdir()
     for name in ("package.json", "package-lock.json"):
@@ -160,12 +164,15 @@ debug=0
     exports = {
         "WISP_NODE": node_bin / "node", "WISP_JCO": js / "node_modules/.bin/jco",
         "WISP_GO": go_bin / "go", "WISP_SOURCE_SERDE": serde, "WISP_WAC": wac,
+        "WISP_WIT_BINDGEN": generator,
+        "WISP_WIT_BINDGEN_WORKDIR": prefix / "binding-work",
     }
     env_file = write_environment(prefix, compiler_environment, exports, node_bin, go_bin)
     (evidence / "setup-inputs.json").write_text(json.dumps({
         "schema": 1, "manifestSha256": args.manifest_sha256, "cliSha256": digest(cli),
         "prefix": str(prefix), "bundles": bundles, "hostPackagingArchives": {name: tool_lock[name] for name in ("node", "go")},
         "compositionTool": wac_receipt,
+        "bindingGenerator": {"version":"0.61.1","path":str(generator),"sha256":digest(generator)},
         "npmLockSha256": digest(js / "package-lock.json"), "serdeLockSha256": digest(serde / "Cargo.lock"),
         "environment": str(env_file), "cleanInstall": True,
     }, indent=2) + "\n")

@@ -84,6 +84,8 @@ jobs:
           test "$(uname -m)" = '${{ matrix.architecture }}'
           mkdir -p evidence/library-chain
           python3 tests/library-chain/setup.py 2>&1 | tee evidence/library-chain/setup.log
+          python3 tools/upstream-bindings/setup.py --out .tools/upstream-bindings
+          echo "WISP_WIT_BINDGEN=$PWD/.tools/upstream-bindings/wit-bindgen" >> "$GITHUB_ENV"
           cargo build --locked --offline -p wisp -p wisp-worker
           echo "WISP_WORKER=$PWD/target/debug/wisp-worker" >> "$GITHUB_ENV"
           echo "$PWD/.tools/library-chain-node/node/bin" >> "$GITHUB_PATH"
@@ -210,7 +212,7 @@ jobs:
           rm -rf out/library-chain/cargo-target
           df -h .
           cargo test --locked --offline -p wisp \
-            --test library_go_guest --test library_go --test library_go_helpers \
+            --test library_go_guest --test library_go_upstream --test library_go --test library_go_helpers \
             --test library_go_resources \
             --test library_go_network --test library_go_async \
             --test library_go_error_context \

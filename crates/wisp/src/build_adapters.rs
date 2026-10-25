@@ -585,7 +585,7 @@ fn snapshot(
     Ok(())
 }
 
-fn validate_component(bytes: &[u8], resolve: &Resolve, world: WorldId) -> Result<()> {
+pub(super) fn validate_component(bytes: &[u8], resolve: &Resolve, world: WorldId) -> Result<()> {
     ensure!(
         bytes.starts_with(b"\0asm\x0d\0\x01\0"),
         "compiler must emit Core Wasm or a WebAssembly Component"

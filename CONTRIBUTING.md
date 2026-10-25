@@ -20,6 +20,15 @@ Source compiler acceptance also needs the
 [shared hosts](tools/shared-hosts/README.md). The test harnesses require Python
 3.11 or later. Compiler and browser setup downloads large dependencies.
 
+Source builds and guest-package generator tests use the pinned upstream CLI:
+
+```sh
+python3 tools/upstream-bindings/setup.py --out .tools/upstream-bindings
+export WISP_WIT_BINDGEN="$PWD/.tools/upstream-bindings/wit-bindgen"
+```
+
+Application compilers still run in Wasm; this CLI only generates binding source.
+
 ## Bounded checks
 
 Run from the repository root. These checks do not provision compiler bundles or

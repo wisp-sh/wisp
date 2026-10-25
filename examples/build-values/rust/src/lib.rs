@@ -25,3 +25,26 @@ pub struct Wide {
     pub g: String, pub h: String, pub i: String,
 }
 pub fn wide(value: Wide) -> Wide { value }
+
+pub enum Mode {
+    Fast = 7,
+    Careful = 23,
+}
+
+pub struct WispNote { pub value: String }
+
+pub struct Batch {
+    pub labels: Vec<String>,
+    pub selected: Option<Mode>,
+    pub modes: Vec<Mode>,
+}
+
+pub fn labels(value: Vec<String>) -> Vec<String> { value }
+pub fn selected(value: Option<Mode>) -> Option<Mode> { value }
+pub fn modes(value: Vec<Mode>) -> Vec<Mode> { value }
+pub fn choices(value: Vec<Option<Mode>>) -> Vec<Option<Mode>> { value }
+pub fn batch_value(value: Batch) -> Batch { value }
+pub fn note(value: WispNote) -> WispNote { value }
+pub fn packet_value(value: Packet) -> Packet { value }
+pub fn wide_value(value: Wide) -> Wide { value }
+pub fn result_value(value: Result<Packet, String>) -> Result<Packet, String> { value }

@@ -15,6 +15,7 @@ fn unconditional(attributes: &[syn::Attribute], name: &str) -> Result<()> {
 enum Declaration {
     Alias(syn::ItemType, String),
     Record(syn::ItemStruct, String),
+    Enum(syn::ItemEnum),
     Import(String, String),
 }
 struct Api {
@@ -43,6 +44,10 @@ impl Api {
                 Item::Struct(record) => self.insert(
                     format!("{prefix}{}", record.ident),
                     Declaration::Record(record.clone(), prefix.into()),
+                )?,
+                Item::Enum(enumeration) => self.insert(
+                    format!("{prefix}{}", enumeration.ident),
+                    Declaration::Enum(enumeration.clone()),
                 )?,
                 Item::Use(item) if matches!(item.vis, Visibility::Public(_)) => {
                     bail!("public Rust re-exports are unsupported; expose a wrapper function")
@@ -204,7 +209,7 @@ impl Api {
         }
         let RustType::Path(path) = ty else {
             bail!(
-                "unsupported public Rust type; use scalars, String, Vec<u8>, public records, or Result<T,E>"
+                "unsupported public Rust type; use scalars, String, Vec<T>, Option<T>, public records, fieldless enums, or Result<T,E>"
             )
         };
         ensure!(
@@ -286,6 +291,45 @@ impl Api {
                         kind: SourceKind::Record(fields),
                     }
                 }
+                Declaration::Enum(enumeration) => {
+                    let wire = wire_name(&key.replace("::", "-").replace("r#", ""))?;
+                    if let Some(previous) = self.used_names.insert(wire.clone(), key.clone()) {
+                        ensure!(
+                            previous == key,
+                            "public Rust type names collide after normalization: {previous}, {key}"
+                        );
+                    }
+                    unconditional(&enumeration.attrs, &enumeration.ident.to_string())?;
+                    ensure!(
+                        matches!(enumeration.vis, Visibility::Public(_)),
+                        "public Rust API enum {key} must be public"
+                    );
+                    ensure!(
+                        enumeration.generics.params.is_empty() && last.arguments.is_empty(),
+                        "generic Rust public API enums are unsupported"
+                    );
+                    let cases = enumeration
+                        .variants
+                        .iter()
+                        .map(|variant| {
+                            let name = variant.ident.to_string();
+                            unconditional(&variant.attrs, &name)?;
+                            ensure!(
+                                matches!(variant.fields, syn::Fields::Unit),
+                                "public Rust enums require fieldless cases: {key}::{name}"
+                            );
+                            Ok(SourceCase {
+                                name: format!("__wisp_application::{key}::{name}"),
+                                wire: wire_name(name.trim_start_matches("r#"))?,
+                            })
+                        })
+                        .collect::<Result<Vec<_>>>()?;
+                    SourceType {
+                        name: format!("__wisp_application::{key}"),
+                        wire: format!("%{wire}"),
+                        kind: SourceKind::Enum(cases),
+                    }
+                }
             };
             stack.remove(&key);
             return Ok(result);
@@ -341,14 +385,29 @@ impl Api {
                 "public Rust Vec requires one element type"
             );
             let element = self.infer(&generic[0], scope, stack)?;
-            ensure!(
-                element.wire == "u8",
-                "public Rust lists currently support Vec<u8>"
-            );
             return Ok(SourceType {
-                name: "std::vec::Vec<u8>".into(),
-                wire: "list<u8>".into(),
-                kind: SourceKind::Bytes,
+                name: format!("std::vec::Vec<{}>", element.name),
+                wire: format!("list<{}>", element.wire),
+                kind: if element.wire == "u8" {
+                    SourceKind::Bytes
+                } else {
+                    SourceKind::List(Box::new(element))
+                },
+            });
+        }
+        if matches!(
+            qualified.as_str(),
+            "Option" | "std::option::Option" | "core::option::Option"
+        ) {
+            ensure!(
+                generic.len() == 1,
+                "public Rust Option requires one element type"
+            );
+            let element = self.infer(&generic[0], scope, stack)?;
+            return Ok(SourceType {
+                name: format!("std::option::Option<{}>", element.name),
+                wire: format!("option<{}>", element.wire),
+                kind: SourceKind::Option(Box::new(element)),
             });
         }
         if matches!(
@@ -402,7 +461,7 @@ impl Api {
             "f32" => "f32",
             "f64" => "f64",
             _ => bail!(
-                "unsupported public Rust type {name}; use scalars, String, Vec<u8>, public records, or Result<T,E>"
+                "unsupported public Rust type {name}; use scalars, String, Vec<T>, Option<T>, public records, fieldless enums, or Result<T,E>"
             ),
         };
         Ok(SourceType::scalar(name, wire))
@@ -456,10 +515,6 @@ impl Api {
             original,
             params: source_params.iter().map(|ty| ty.wire.clone()).collect(),
             result: source_result.as_ref().map(|ty| ty.wire.clone()),
-            rust_params: source_params.iter().map(|ty| ty.name.clone()).collect(),
-            rust_result: source_result.as_ref().map(|ty| ty.name.clone()),
-            go_params: Vec::new(),
-            go_result: None,
             source_params,
             source_result,
             go_error_result: false,
@@ -520,7 +575,14 @@ mod tests {
         assert_eq!(api[0].params, ["u32", "u32"]);
         assert_eq!(api[1].original, "math::flip");
         assert_eq!(api[2].params, ["u32"]);
-        assert_eq!(api[2].rust_params, ["usize"]);
+        assert_eq!(
+            api[2]
+                .source_params
+                .iter()
+                .map(|ty| ty.name.as_str())
+                .collect::<Vec<_>>(),
+            ["usize"]
+        );
         assert!(hashes.contains_key("math.rs"));
     }
     #[test]
@@ -539,7 +601,13 @@ pub mod nested { use crate::Packet; pub fn echo(value: Packet) -> super::Packet 
         let (api, _) = functions(project.path()).unwrap();
         let echo = &api[0];
         assert_eq!(echo.params, ["%packet"]);
-        assert_eq!(echo.rust_params, ["__wisp_application::Packet"]);
+        assert_eq!(
+            echo.source_params
+                .iter()
+                .map(|ty| ty.name.as_str())
+                .collect::<Vec<_>>(),
+            ["__wisp_application::Packet"]
+        );
         assert_eq!(echo.result.as_deref(), Some("result<%packet, %fault>"));
         assert!(echo.types["%packet"].contains("%type: u32"));
         assert_eq!(api[1].result.as_deref(), Some("result<_, string>"));
@@ -599,6 +667,117 @@ pub mod nested { use crate::Packet; pub fn echo(value: Packet) -> super::Packet 
         assert_eq!(api[0].source_params[0].name, "__wisp_application::a::Value");
     }
     #[test]
+    fn infers_nested_lists_options_and_fieldless_enum_source_cases() {
+        let project = project(
+            r#"
+pub mod model {
+    pub enum Mode { First = 7, HTTPReady = 29, r#type = 101 }
+    pub struct Packet {
+        pub mode: Option<Mode>,
+        pub labels: Vec<Vec<String>>,
+        pub bytes: Vec<u8>,
+    }
+}
+use model::{Mode, Packet};
+pub fn packet(value: Packet) -> Option<Packet> { Some(value) }
+pub fn choices(value: Vec<Option<Mode>>) -> Result<Vec<Option<Mode>>, Vec<String>> { Ok(value) }
+"#,
+        );
+        let (mut api, _) = functions(project.path()).unwrap();
+        normalize_record_names(&mut api).unwrap();
+        assert_eq!(api[0].params, ["%model-packet"]);
+        assert_eq!(api[0].result.as_deref(), Some("option<%model-packet>"));
+        assert_eq!(api[1].params, ["list<option<%model-mode>>"]);
+        assert_eq!(
+            api[1].result.as_deref(),
+            Some("result<list<option<%model-mode>>, list<string>>")
+        );
+        let SourceKind::Record(fields) = &api[0].source_params[0].kind else {
+            panic!()
+        };
+        let SourceKind::Option(mode) = &fields[0].ty.kind else {
+            panic!()
+        };
+        let SourceKind::Enum(cases) = &mode.kind else {
+            panic!()
+        };
+        assert_eq!(
+            cases
+                .iter()
+                .map(|case| case.wire.as_str())
+                .collect::<Vec<_>>(),
+            ["first", "http-ready", "type"]
+        );
+        assert_eq!(cases[0].name, "__wisp_application::model::Mode::First");
+        assert_eq!(cases[2].name, "__wisp_application::model::Mode::r#type");
+        assert!(matches!(fields[1].ty.kind, SourceKind::List(_)));
+        assert!(matches!(fields[2].ty.kind, SourceKind::Bytes));
+        assert_eq!(
+            fields[1].ty.name,
+            "std::vec::Vec<std::vec::Vec<std::string::String>>"
+        );
+        let wit = declarations(&api).unwrap();
+        let mut resolve = Resolve::default();
+        resolve.push_str("api.wit", &format!("package test:collections; interface api {{ {wit} }} world app {{ export api; }}")).unwrap();
+    }
+
+    #[test]
+    fn upstream_rust_wrapper_adapts_native_values_without_ordinal_enum_casts() {
+        let project = project(
+            r#"
+pub enum Mode { First = 7, HTTPReady = 103 }
+pub struct Packet { pub r#type: Mode, pub choices: Vec<Option<Mode>>, pub bytes: Vec<u8> }
+pub fn echo(value: Packet) -> Result<Packet, String> { Ok(value) }
+pub fn check(value: Option<Mode>) -> Result<(), Mode> { Ok(()) }
+pub fn nothing() {}
+"#,
+        );
+        let (mut api, _) = functions(project.path()).unwrap();
+        normalize_record_names(&mut api).unwrap();
+        let wit = declarations(&api).unwrap();
+        let mut resolve = Resolve::default();
+        let package = resolve.push_str("api.wit", &format!("package test:rust-adapter; interface api {{ {wit} }} world app {{ export api; }}")).unwrap();
+        let world = resolve.select_world(&[package], Some("app")).unwrap();
+        let functions = api
+            .into_iter()
+            .map(|function| (function.wire.clone(), function))
+            .collect();
+        let wrapper =
+            crate::build::inferred::rust::rust(&resolve, world, &functions, "ordinary_rust")
+                .unwrap();
+        syn::parse_file(&wrapper).expect("upstream Rust wrapper must parse");
+        assert!(wrapper.contains("extern crate ordinary_rust as __wisp_application"));
+        assert!(wrapper.contains("impl exports::test::rust_adapter::api::Guest"));
+        assert!(wrapper.contains("__wisp_application::Mode::First"));
+        assert!(wrapper.contains(
+            "exports::test::rust_adapter::api::Mode::First => __wisp_application::Mode::First"
+        ));
+        assert!(wrapper.contains(
+            "__wisp_application::Mode::HTTPReady => exports::test::rust_adapter::api::Mode::HttpReady"
+        ));
+        assert!(wrapper.contains(".into_iter().map("));
+        assert!(wrapper.contains(".map(|item|"));
+        assert!(wrapper.contains("r#type:"));
+        assert!(wrapper.contains("type_:"));
+        assert!(wrapper.contains("__wisp_application::nothing(); ()"));
+        assert!(wrapper.contains("export!(__WispApplication)"));
+        assert!(wrapper.contains("cabi_post_"));
+    }
+
+    #[test]
+    fn enum_function_collision_is_renamed_inside_nested_containers() {
+        let project = project(
+            "pub enum Mode { First, Second } pub fn mode(value: Vec<Option<Mode>>) -> Vec<Option<Mode>> {value}",
+        );
+        let (mut api, _) = functions(project.path()).unwrap();
+        normalize_record_names(&mut api).unwrap();
+        assert_eq!(api[0].wire, "mode");
+        assert_eq!(api[0].params, ["list<option<%mode-enum>>"]);
+        assert_eq!(api[0].params, [api[0].result.as_ref().unwrap().clone()]);
+        let wit = declarations(&api).unwrap();
+        Resolve::default().push_str("api.wit", &format!("package test:enum-collision; interface api {{ {wit} }} world app {{ export api; }}")).unwrap();
+    }
+    #[test]
     fn rejects_unsupported_recursive_private_or_conditional_rust_apis() {
         for source in [
             "pub fn bad(value: &str) -> u32 { 1 }",
@@ -612,7 +791,11 @@ pub mod nested { use crate::Packet; pub fn echo(value: Packet) -> super::Packet 
             "type A = B; type B = A; pub fn bad(value: A)->A{value}",
             "pub struct FooBar { pub x: u32 } pub struct Foo_Bar { pub x: u32 } pub fn first(value: FooBar)->FooBar{value} pub fn second(value: Foo_Bar)->Foo_Bar{value}",
             "pub struct Pair(pub u32, pub u32); pub fn bad(value: Pair)->Pair{value}",
-            "pub fn bad(value: Vec<String>)->Vec<String>{value}",
+            "pub fn bad(value: Option<&str>)->Option<&str>{value}",
+            "pub enum Mode { Data(u32) } pub fn bad(value: Mode)->Mode{value}",
+            "enum Mode { First } pub fn bad(value: Mode)->Mode{value}",
+            "pub enum Mode { #[cfg(unix)] First, Second } pub fn bad(value: Mode)->Mode{value}",
+            "pub enum Mode { FooBar, Foo_Bar } pub fn bad(value: Mode)->Mode{value}",
             "pub struct Collision { pub one_word: u32, pub oneWord: u32 } pub fn bad(value: Collision)->Collision{value}",
         ] {
             assert!(functions(project(source).path()).is_err(), "{source}");

@@ -1,10 +1,11 @@
-//! Freestanding C++ APIs use aggregates and Wisp's string, byte, and result views.
+//! Infer ordinary C++ value APIs independently of their upstream Component ABI.
 use super::*;
 
 #[derive(Clone)]
 enum Declaration {
     Record(Vec<(String, String)>, String),
     Alias(String, String),
+    Enum(Vec<SourceCase>),
     Unsupported(String),
 }
 struct Types {
@@ -135,6 +136,20 @@ impl Types {
                         kind: SourceKind::Record(fields),
                     }
                 }
+                Declaration::Enum(cases) => {
+                    let wire = wire_name(&key.replace("::", "-"))?;
+                    if let Some(previous) = self.used_names.insert(wire.clone(), key.clone()) {
+                        ensure!(
+                            previous == key,
+                            "public C++ type names collide after normalization: {previous}, {key}"
+                        );
+                    }
+                    SourceType {
+                        name: key.clone(),
+                        wire: format!("%{wire}"),
+                        kind: SourceKind::Enum(cases),
+                    }
+                }
                 Declaration::Unsupported(reason) => {
                     bail!("unsupported public C++ record {key}: {reason}")
                 }
@@ -142,9 +157,12 @@ impl Types {
             stack.remove(&key);
             return Ok(result);
         }
-        if matches!(name.as_str(), "wisp::string" | "::wisp::string") {
+        if matches!(
+            name.as_str(),
+            "wisp::string" | "::wisp::string" | "std::string" | "::std::string"
+        ) {
             return Ok(SourceType {
-                name: "wisp::string".into(),
+                name: name.trim_start_matches("::").into(),
                 wire: "string".into(),
                 kind: SourceKind::String,
             });
@@ -157,14 +175,26 @@ impl Types {
             });
         }
         if let Some((base, args)) = arguments(&name)? {
+            let base = base.trim_start_matches("::");
+            if matches!(base, "std::vector" | "std::optional") {
+                ensure!(args.len() == 1, "{base} requires one public value type");
+                let element = self.infer(args[0], prefix, stack, depth + 1)?;
+                let list = base == "std::vector";
+                return Ok(SourceType {
+                    name: format!("{base}<{}>", element.name),
+                    wire: format!("{}<{}>", if list { "list" } else { "option" }, element.wire),
+                    kind: if list {
+                        SourceKind::List(Box::new(element))
+                    } else {
+                        SourceKind::Option(Box::new(element))
+                    },
+                });
+            }
             ensure!(
-                matches!(base, "wisp::result" | "::wisp::result"),
-                "unsupported public C++ template type {name}; use wisp::result<T,E>"
+                matches!(base, "wisp::result" | "std::expected"),
+                "unsupported public C++ template type {name}; use std::vector, std::optional, std::expected, or wisp::result"
             );
-            ensure!(
-                args.len() == 2,
-                "wisp::result requires success and error types"
-            );
+            ensure!(args.len() == 2, "{base} requires success and error types");
             let mut payload = |name: &str| -> Result<Option<SourceType>> {
                 if matches!(name, "void" | "wisp::unit" | "::wisp::unit") {
                     Ok(None)
@@ -174,9 +204,13 @@ impl Types {
             };
             let ok = payload(args[0])?;
             let err = payload(args[1])?;
+            ensure!(
+                base != "std::expected" || args[1] != "void",
+                "std::expected requires a non-void error type; use wisp::unit for a unit error"
+            );
             return Ok(SourceType::result(
                 format!(
-                    "wisp::result<{}, {}>",
+                    "{base}<{}, {}>",
                     ok.as_ref().map(|t| t.name.as_str()).unwrap_or(args[0]),
                     err.as_ref().map(|t| t.name.as_str()).unwrap_or(args[1])
                 ),
@@ -184,7 +218,7 @@ impl Types {
                 err,
             ));
         }
-        let wire = scalar(&name).with_context(|| format!("unsupported public C/C++ type {name}; use scalars, plain structs, wisp::string, wisp::bytes, or wisp::result<T,E>"))?;
+        let wire = scalar(&name).with_context(|| format!("unsupported public C/C++ type {name}; use scalars, plain structs, enum class, strings, vectors, optional or expected values"))?;
         Ok(SourceType::scalar(name, wire))
     }
     fn ty(&mut self, name: &str, prefix: &str) -> Result<SourceType> {
@@ -267,6 +301,42 @@ fn collect(node: Node<'_>, source: &str, prefix: &str, types: &mut Types) -> Res
                     format!("{prefix}{name}"),
                     Declaration::Alias(ty.into(), prefix.into()),
                 );
+            }
+            "enum_specifier" if item.child_by_field_name("body").is_some() => {
+                let name = text(child(item, "name")?, source);
+                ensure!(
+                    text(item, source).starts_with("enum class ")
+                        || text(item, source).starts_with("enum struct "),
+                    "public C++ enums must use enum class: {name}"
+                );
+                let mut cases = Vec::new();
+                let mut names = BTreeSet::new();
+                for case in child(item, "body")?.named_children(&mut item.walk()) {
+                    if case.kind() == "comment" {
+                        continue;
+                    }
+                    ensure!(
+                        case.kind() == "enumerator",
+                        "unsupported public C++ enum case"
+                    );
+                    let name = text(child(case, "name")?, source).to_owned();
+                    let wire = wire_name(&name)?;
+                    ensure!(
+                        names.insert(wire.clone()),
+                        "public C++ enum cases collide after normalization: {wire}"
+                    );
+                    cases.push(SourceCase {
+                        name: format!("{prefix}{}::{name}", text(child(item, "name")?, source)),
+                        wire,
+                    });
+                }
+                ensure!(
+                    !cases.is_empty() && cases.len() <= 256,
+                    "public C++ enum requires 1 to 256 cases"
+                );
+                types
+                    .declarations
+                    .insert(format!("{prefix}{name}"), Declaration::Enum(cases));
             }
             _ => {}
         }
@@ -377,10 +447,6 @@ fn walk(
                     original,
                     params: source_params.iter().map(|ty| ty.wire.clone()).collect(),
                     result: source_result.as_ref().map(|ty| ty.wire.clone()),
-                    rust_params: Vec::new(),
-                    rust_result: None,
-                    go_params: Vec::new(),
-                    go_result: None,
                     source_params,
                     source_result,
                     go_error_result: false,
@@ -479,9 +545,155 @@ mod tests {
             "struct Data { unsigned one_word; unsigned oneWord; }; Data Echo(Data value) { return value; }",
             "using A = B; using B = A; A Echo(A value) { return value; }",
             "struct FooBar { unsigned x; }; struct Foo_Bar { unsigned x; }; FooBar First(FooBar value){return value;} Foo_Bar Second(Foo_Bar value){return value;}",
-            "std::string Echo(std::string value) { return value; }",
+            "std::vector<int, CustomAllocator> Echo(std::vector<int, CustomAllocator> value) { return value; }",
         ] {
             assert!(api(source).is_err(), "{source}");
         }
+    }
+    #[test]
+    fn standard_containers_expected_and_explicit_enum_values() {
+        let functions = api(r#"
+namespace app {
+enum class Mode { First = 11, NextOne = 42 };
+struct Packet { std::string label; std::vector<std::optional<Mode>> choices; };
+std::expected<Packet, std::string> Echo(std::optional<Packet> value) { return {}; }
+std::vector<std::string> Labels(std::vector<std::string> value) { return value; }
+}
+"#)
+        .unwrap();
+        assert_eq!(functions[0].params, ["option<%app-packet>"]);
+        assert_eq!(
+            functions[0].result.as_deref(),
+            Some("result<%app-packet, string>")
+        );
+        assert_eq!(
+            functions[0].source_result.as_ref().unwrap().name,
+            "std::expected<app::Packet, std::string>"
+        );
+        let SourceKind::Option(packet) = &functions[0].source_params[0].kind else {
+            panic!()
+        };
+        let SourceKind::Record(fields) = &packet.kind else {
+            panic!()
+        };
+        let SourceKind::List(element) = &fields[1].ty.kind else {
+            panic!()
+        };
+        let SourceKind::Option(mode) = &element.kind else {
+            panic!()
+        };
+        let SourceKind::Enum(cases) = &mode.kind else {
+            panic!()
+        };
+        assert_eq!(cases[0].name, "app::Mode::First");
+        assert_eq!(cases[1].wire, "next-one");
+        let wit = declarations(&functions).unwrap();
+        assert!(wit.contains("enum %app-mode"));
+        assert!(wit.contains("list<option<%app-mode>>"));
+        let mut resolve = Resolve::default();
+        resolve
+            .push_str(
+                "api.wit",
+                &format!("package test:cpp; interface api {{ {wit} }} world app {{ export api; }}"),
+            )
+            .unwrap();
+    }
+
+    #[test]
+    fn ordinary_cpp_examples_parse_without_generated_api_names() {
+        let scalar = api(include_str!("../../../examples/build-cpp/math.cpp")).unwrap();
+        assert_eq!(
+            scalar
+                .iter()
+                .map(|function| function.original.as_str())
+                .collect::<Vec<_>>(),
+            ["add", "negate", "widen"]
+        );
+        let rich = api(include_str!("../../../examples/build-values/cpp/main.cpp")).unwrap();
+        for name in [
+            "echo",
+            "buffer",
+            "packet",
+            "checked",
+            "relay",
+            "wide",
+            "labels",
+            "selected",
+            "modes",
+            "choices",
+            "batch",
+            "result_value",
+        ] {
+            assert!(
+                rich.iter().any(|function| function.original == name),
+                "{name}"
+            );
+        }
+        assert!(
+            rich.iter()
+                .any(|function| function.params == ["list<option<%mode>>"])
+        );
+    }
+
+    #[test]
+    fn upstream_cpp_cli_generates_value_bridge_and_component_object() {
+        let mut functions = api(r#"
+namespace app {
+enum class Mode { First = 7, HTTPReady = 103 };
+struct Packet { std::string label; std::vector<std::optional<Mode>> choices; };
+std::expected<Packet, std::string> Echo(Packet value) { return {}; }
+std::optional<Mode> Select(std::optional<Mode> value) { return value; }
+std::expected<void, Mode> Check(bool value) { return {}; }
+void Nothing() {}
+}
+"#)
+        .unwrap();
+        normalize_record_names(&mut functions).unwrap();
+        let wit = declarations(&functions).unwrap();
+        let mut resolve = Resolve::default();
+        let package = resolve.push_str("api.wit", &format!("package test:cpp-adapter; interface api {{ {wit} }} world app {{ export api; }}")).unwrap();
+        let world = resolve.select_world(&[package], Some("app")).unwrap();
+        let functions = functions
+            .into_iter()
+            .map(|function| (function.wire.clone(), function))
+            .collect();
+        let directory = tempfile::tempdir().unwrap();
+        let (bridge, objects) = crate::build::inferred::cpp::clang(
+            &resolve,
+            world,
+            &functions,
+            &["/src/main.cpp".into()],
+            directory.path(),
+        )
+        .unwrap();
+        assert!(bridge.contains("#include \"/src/main.cpp\""));
+        assert!(bridge.contains("namespace exports::test::cpp_adapter::api"));
+        assert!(bridge.contains("::app::Echo(std::move(source0))"));
+        assert!(bridge.contains("case ::app::Mode::HTTPReady: return ::exports::test::cpp_adapter::api::AppMode::kHttpReady"));
+        assert!(bridge.contains(
+            "case ::exports::test::cpp_adapter::api::AppMode::kFirst: return ::app::Mode::First"
+        ));
+        assert!(bridge.contains("std::nullopt"));
+        assert!(bridge.contains("std::unexpected"));
+        assert!(bridge.contains("::wit::string::from_view"));
+        assert!(bridge.contains("::std::vector<::std::optional<::app::Mode>>"));
+        assert!(bridge.contains("::app::Nothing();"));
+        assert_eq!(objects, ["app_component_type.o"]);
+        assert!(directory.path().join(&objects[0]).is_file());
+        let runtime = fs::read_to_string(directory.path().join("app.cpp")).unwrap();
+        assert!(runtime.contains("cabi_post_"));
+        let compatibility = fs::read_to_string(directory.path().join("wisp_types.hpp")).unwrap();
+        assert!(compatibility.contains("std::shared_ptr"));
+        assert!(!compatibility.contains("wisp_alloc"));
+        assert!(!compatibility.contains("import_module"));
+
+        let header =
+            crate::build::inferred::cpp::cpp_header(&resolve, world, "arithmetic").unwrap();
+        assert!(header.contains("namespace arithmetic"));
+        assert!(header.contains("using AppPacket = ::test::cpp_adapter::api::AppPacket"));
+        assert!(header.contains("app_echo(Args&&... args)"));
+        assert!(header.contains("::test::cpp_adapter::api::AppEcho"));
+        assert!(!header.contains("import_module"));
+        assert!(crate::build::inferred::cpp::cpp_namespace("namespace").is_err());
     }
 }

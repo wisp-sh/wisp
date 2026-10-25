@@ -1,0 +1,12 @@
+package demo:go-math@0.1.0;
+
+world library {
+  export add: func(a: u32, b: u32) -> u32;
+  export negate: func(value: bool) -> bool;
+  export widen: func(value: u64) -> u64;
+  export environment-count: func() -> u32;
+  export clock-ready: func() -> bool;
+  export stress: func() -> u32;
+  export random-ready: func() -> bool;
+  export filesystem-denied: func() -> bool;
+}

@@ -33,8 +33,15 @@ Wago automatically; application code uses ordinary functions. See
 Generated contracts and glue are retained under
 `build/units/application/` in the output for inspection.
 
-The initial inference mode supports scalar free functions defined in the source
-files, including namespace-qualified functions. Pointers, references, overloaded
-public names, templates and conditional API definitions are rejected. Ordinary
-implementation code can use internal helpers within the compiler's supported
-freestanding C++ subset. There is no handwritten WIT or binding header.
+Inference supports scalar free functions, plain records, `enum class`,
+`std::string`, `std::vector<T>`, `std::optional<T>` and `std::expected<T,E>`.
+The [rich-value example](../build-values/cpp/main.cpp) also uses the compatible
+`wisp::string`, `wisp::bytes` and `wisp::result` source helpers. Pointers,
+references, overloaded public names, public templates and conditional API
+definitions are rejected.
+
+Wisp adapts these source values to upstream wit-bindgen C++ values. Upstream
+bindings own the Component ABI and return cleanup. The Wasm-hosted compiler
+uses WASI SDK libc/libc++; configure `WISP_CLANG_WASI_SYSROOT` and
+`WISP_WIT_BINDGEN` as described in the compiler setup. There is no handwritten
+WIT or binding header.

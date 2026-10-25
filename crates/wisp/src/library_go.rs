@@ -1744,7 +1744,8 @@ pub fn module_archive(package: &Path, module: &str, version: &str) -> Result<Mod
         .clone();
     ensure!(
         mod_file == module_metadata(module, version)?.0
-            || mod_file == portable::module_file(module),
+            || mod_file == portable::module_file(module)
+            || mod_file == guest::module_file(module),
         "Go module path mismatch"
     );
     let mut writer = zip::ZipWriter::new(Cursor::new(Vec::new()));

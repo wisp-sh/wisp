@@ -5,6 +5,7 @@ version = "0.1.0"
 description = "A Go library calling a C++ Component dependency"
 license = "MIT"
 [build]
+wit = "wit"
 root = "application"
 [build.units.arithmetic]
 compiler = "clang"

@@ -4,10 +4,106 @@ use base64::Engine;
 use serde_json::Value;
 use sha2::{Digest, Sha256, Sha512};
 use std::{
-    collections::BTreeSet,
+    collections::{BTreeMap, BTreeSet},
     fs,
     path::{Path, PathBuf},
 };
+
+/// Run the pinned upstream guest generator. Generated source is data, and all
+/// application compilation remains inside the language's Wasm toolchain.
+pub fn wit_bindgen(
+    resolve: &wit_parser::Resolve,
+    world: wit_parser::WorldId,
+    language: &str,
+    options: &[&str],
+) -> Result<BTreeMap<String, Vec<u8>>> {
+    let executable = std::env::var_os("WISP_WIT_BINDGEN").unwrap_or_else(|| "wit-bindgen".into());
+    let version=std::process::Command::new(&executable).arg("--version").output()
+        .context("set WISP_WIT_BINDGEN to wit-bindgen 0.61.1; tools/upstream-bindings/setup.py installs a verified release")?;
+    ensure!(
+        version.status.success()
+            && std::str::from_utf8(&version.stdout)?.trim() == "wit-bindgen-cli 0.61.1",
+        "guest bindings require wit-bindgen-cli 0.61.1"
+    );
+    let base = std::env::var_os("WISP_WIT_BINDGEN_WORKDIR")
+        .map(PathBuf::from)
+        .or_else(|| {
+            std::env::var_os("XDG_CACHE_HOME").map(|p| PathBuf::from(p).join("wisp/wit-bindgen"))
+        })
+        .or_else(|| {
+            std::env::var_os("HOME").map(|p| PathBuf::from(p).join(".cache/wisp/wit-bindgen"))
+        })
+        .context("set WISP_WIT_BINDGEN_WORKDIR to disk-backed storage")?;
+    fs::create_dir_all(&base)?;
+    let temp = tempfile::tempdir_in(base)?;
+    let package = resolve.worlds[world]
+        .package
+        .context("binding world package")?;
+    let others = resolve
+        .packages
+        .iter()
+        .map(|(id, _)| id)
+        .filter(|id| *id != package)
+        .collect::<Vec<_>>();
+    let mut printer = wit_component::WitPrinter::default();
+    printer.print(resolve, package, &others)?;
+    let contract = temp.path().join("contract.wit");
+    fs::write(&contract, printer.output.to_string())?;
+    let output = temp.path().join("generated");
+    let result = std::process::Command::new(executable)
+        .arg(language)
+        .arg(contract)
+        .arg("--world")
+        .arg(&resolve.worlds[world].name)
+        .arg("--out-dir")
+        .arg(&output)
+        .args(options)
+        .output()?;
+    ensure!(
+        result.status.success(),
+        "upstream {language} bindings failed: {}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    fn collect(
+        root: &Path,
+        path: &Path,
+        files: &mut BTreeMap<String, Vec<u8>>,
+        size: &mut usize,
+    ) -> Result<()> {
+        for entry in fs::read_dir(path)? {
+            let entry = entry?;
+            let path = entry.path();
+            let kind = entry.file_type()?;
+            if kind.is_dir() {
+                collect(root, &path, files, size)?;
+            } else {
+                ensure!(
+                    kind.is_file()
+                        && entry.metadata()?.len() <= 16 * 1024 * 1024
+                        && files.len() < 1024,
+                    "upstream binding output limit"
+                );
+                let name = path
+                    .strip_prefix(root)?
+                    .to_str()
+                    .context("UTF8 binding filename")?
+                    .replace('\\', "/");
+                crate::release::safe_name(&name)?;
+                let bytes = fs::read(path)?;
+                *size += bytes.len();
+                ensure!(
+                    *size <= 32 * 1024 * 1024,
+                    "upstream binding output size limit"
+                );
+                files.insert(name, bytes);
+            }
+        }
+        Ok(())
+    }
+    let mut files = BTreeMap::new();
+    collect(&output, &output, &mut files, &mut 0)?;
+    Ok(files)
+}
 
 fn bounded(path: &Path) -> Result<Vec<u8>> {
     let metadata = fs::symlink_metadata(path)?;

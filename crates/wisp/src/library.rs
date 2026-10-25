@@ -1893,7 +1893,7 @@ pub fn run_cli(args: &[String]) -> Result<Value> {
     let mut release = json!({"schema":3,"kind":"component-library","identity":settings.package.name,"version":version,"componentSha256":digest(&bytes),"contract":model,"packages":{"rust":{"name":cargo_name,"sha256":digest(&fs::read(out.join("rust.crate"))?)},"node":{"name":npm_name,"sha256":digest(&fs::read(out.join("node.tgz"))?)}},"targets":targets(wasi, asynchronous, go_module.is_some(), pure),"tools":tools(),"metadata":metadata});
     let mut go_platform = None;
     if let Some(module) = go_module {
-        let report = if go_guest || crate::library_go::portable::supports(&bytes) {
+        let report = if crate::library_go::portable::supports(&bytes) {
             crate::library_go::portable::generate(
                 &bytes,
                 &out.join("go"),
@@ -1901,6 +1901,19 @@ pub fn run_cli(args: &[String]) -> Result<Value> {
                 &version,
                 &metadata.go_files(),
             )?
+        } else if go_guest {
+            ensure!(
+                crate::library_go::guest::supports(&bytes),
+                "unsupported synchronous Go guest contract"
+            );
+            crate::library_go::guest::generate(
+                &bytes,
+                &out.join("go"),
+                module,
+                &version,
+                &metadata.go_files(),
+            )?;
+            json!({"platform":crate::library_go::guest::PLATFORM})
         } else {
             crate::library_go::generate_with_notices(
                 &bytes,

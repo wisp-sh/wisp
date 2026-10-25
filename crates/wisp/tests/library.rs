@@ -1,7 +1,3 @@
-#[path = "support/source_bindings.rs"]
-mod source_bindings;
-use source_bindings::{build_bindings, build_go_memory, build_values};
-
 #[allow(dead_code)]
 #[path = "../src/generator_tools.rs"]
 mod generator_tools;

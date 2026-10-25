@@ -25,11 +25,21 @@ pub(super) enum SourceKind {
     Scalar,
     String,
     Bytes,
+    List(Box<SourceType>),
+    Option(Box<SourceType>),
+    Enum(Vec<SourceCase>),
     Record(Vec<SourceField>),
     Result {
         ok: Option<Box<SourceType>>,
         err: Option<Box<SourceType>>,
     },
+}
+#[derive(Debug, Clone)]
+pub(super) struct SourceCase {
+    /// Qualified native expression identifying the case, independent of its discriminant.
+    pub name: String,
+    /// Normalized WIT case identifier without the `%` escape.
+    pub wire: String,
 }
 #[derive(Debug, Clone)]
 pub(super) struct SourceField {
@@ -71,6 +81,33 @@ fn type_declarations(types: impl Iterator<Item = SourceType>) -> Result<BTreeMap
         *count += 1;
         ensure!(*count <= 4096, "public API type expansion limit");
         match &ty.kind {
+            SourceKind::List(element) | SourceKind::Option(element) => {
+                visit(element, declarations, count)?;
+            }
+            SourceKind::Enum(cases) => {
+                ensure!(
+                    !cases.is_empty() && cases.len() <= 256,
+                    "public enums require 1 to 256 cases"
+                );
+                let mut names = BTreeSet::new();
+                let mut declaration = format!("  enum {} {{\n", ty.wire);
+                for case in cases {
+                    ensure!(
+                        names.insert(&case.wire),
+                        "enum case names collide after normalization: {}",
+                        case.wire
+                    );
+                    declaration.push_str(&format!("    %{},\n", case.wire));
+                }
+                declaration.push_str("  }\n");
+                if let Some(previous) = declarations.insert(ty.wire.clone(), declaration.clone()) {
+                    ensure!(
+                        previous == declaration,
+                        "public type names collide after normalization: {}",
+                        ty.wire
+                    );
+                }
+            }
             SourceKind::Record(fields) => {
                 let mut names = BTreeSet::new();
                 ensure!(
@@ -115,10 +152,6 @@ fn type_declarations(types: impl Iterator<Item = SourceType>) -> Result<BTreeMap
 #[derive(Debug, Clone)]
 pub(super) struct Function {
     pub original: String,
-    pub go_params: Vec<String>,
-    pub go_result: Option<String>,
-    pub rust_params: Vec<String>,
-    pub rust_result: Option<String>,
     pub source_params: Vec<SourceType>,
     pub source_result: Option<SourceType>,
     pub go_error_result: bool,
@@ -186,10 +219,20 @@ fn normalize_record_names(functions: &mut [Function]) -> Result<()> {
         .collect::<BTreeSet<_>>();
     let mut renamed = BTreeMap::new();
     for name in type_names.intersection(&function_names) {
-        let mut replacement = format!("{name}-record");
+        let kind = if functions.iter().any(|function| {
+            function
+                .types
+                .get(name)
+                .is_some_and(|declaration| declaration.trim_start().starts_with("enum "))
+        }) {
+            "enum"
+        } else {
+            "record"
+        };
+        let mut replacement = format!("{name}-{kind}");
         let mut suffix = 2;
         while occupied.contains(&replacement) {
-            replacement = format!("{name}-record{suffix}");
+            replacement = format!("{name}-{kind}{suffix}");
             suffix += 1;
         }
         occupied.insert(replacement.clone());
@@ -197,6 +240,19 @@ fn normalize_record_names(functions: &mut [Function]) -> Result<()> {
     }
     fn rename(ty: &mut SourceType, renamed: &BTreeMap<String, String>) {
         match &mut ty.kind {
+            SourceKind::List(element) => {
+                rename(element, renamed);
+                ty.wire = format!("list<{}>", element.wire);
+            }
+            SourceKind::Option(element) => {
+                rename(element, renamed);
+                ty.wire = format!("option<{}>", element.wire);
+            }
+            SourceKind::Enum(_) => {
+                if let Some(name) = renamed.get(&ty.wire) {
+                    ty.wire = name.clone();
+                }
+            }
             SourceKind::Record(fields) => {
                 if let Some(name) = renamed.get(&ty.wire) {
                     ty.wire = name.clone();
@@ -488,7 +544,7 @@ pub(super) fn generate(
         )?;
     }
     for (alias, installed) in &config.dependencies.clone() {
-        crate::build_bindings::cpp_namespace(alias)?;
+        super::inferred::cpp::cpp_namespace(alias)?;
         let directory = input(root, &installed.path)?;
         let admitted = crate::library::validate(&directory)
             .with_context(|| format!("installed C++ package {alias}"))?;
@@ -520,7 +576,7 @@ pub(super) fn generate(
             "generated dependency unit name collision"
         );
         let world = merge_provider(resolve, &bytes, &name)?;
-        let header = crate::build_bindings::cpp_header(resolve, world, alias)?;
+        let header = super::inferred::cpp::cpp_header(resolve, world, alias)?;
         let consumers = source_units
             .iter()
             .filter(|name| matches!(config.build.units[*name].compiler, Some(Compiler::Clang)))
@@ -657,11 +713,24 @@ func main() {}
         let (api, _) = go_functions(project.path()).unwrap();
         let total = api.iter().find(|f| f.original == "Total").unwrap();
         assert_eq!(total.params, ["u32", "s64"]);
-        assert_eq!(total.go_params, ["Counter", "int"]);
-        assert_eq!(total.go_result.as_deref(), Some("int"));
+        assert_eq!(
+            total
+                .source_params
+                .iter()
+                .map(|ty| ty.name.as_str())
+                .collect::<Vec<_>>(),
+            ["Counter", "int"]
+        );
+        assert_eq!(
+            total.source_result.as_ref().map(|ty| ty.name.as_str()),
+            Some("int")
+        );
         let flip = api.iter().find(|f| f.original == "Flip").unwrap();
         assert_eq!(flip.params, ["bool"]);
-        assert_eq!(flip.go_result.as_deref(), Some("Flag"));
+        assert_eq!(
+            flip.source_result.as_ref().map(|ty| ty.name.as_str()),
+            Some("Flag")
+        );
     }
     #[test]
     fn cpp_api_keeps_namespace_calls_and_hides_internal_helpers() {

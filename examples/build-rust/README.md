@@ -10,8 +10,9 @@ pub fn add(a: u32, b: u32) -> u32 {
 }
 ```
 
-Wisp infers the scalar public API and generates the Component contract and ABI
-wrappers. There is no authored WIT, export annotation or special function name.
+Wisp infers the scalar public API, generates the Component contract, and adapts
+the source functions to upstream wit-bindgen's Rust bindings. There is no authored
+WIT, export annotation or special function name.
 The source remains a normal Cargo library and can be checked in a Rust editor.
 
 With the compiler toolchains configured:
@@ -23,6 +24,7 @@ target/debug/wisp build examples/build-rust --component-only --out out/rust-math
 # 42
 ```
 
+`WISP_WIT_BINDGEN` selects the pinned wit-bindgen 0.61.1 generator.
 `WISP_RUST` selects the compiler package. The local environment defaults to
 `../wisp-buildtools/rust/dist/compiler`, the verified source-built compiler.
 The compiler requires Wasmtime 50.0.0, selected with `WISP_RUST_WASMTIME`.
@@ -40,9 +42,13 @@ See [Go importing Rust](../go-import-rust),
 [C++ importing Rust](../cpp-import-rust), and
 [Rust importing Go and C++](../rust-import-wasm) for package imports in both
 directions. This example has a scalar interface. Source APIs can also expose
-`String`, `Vec<u8>`, public named structs and `Result<T, E>`; the
+`String`, `Vec<T>`, `Option<T>`, public named structs, fieldless enums and
+`Result<T, E>`; the
 [rich value example](../build-values/rust/) exercises those types. Generic
 functions remain private implementation details.
+
+The [authored WIT example](../build-rust-authored/) implements generated traits
+directly when a project needs to define its contract explicitly.
 
 This arithmetic example checks ordinary Rust exports. The source-built compiler
 also passes unmodified Serde derives and basic build scripts in the separate

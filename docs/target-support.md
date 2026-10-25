@@ -48,25 +48,25 @@ its Wasm implementation excludes that runtime.
 
 The pure browser fixture covers application-local ESM loading. Browser and native host requirements differ. [Installed package tests](../tests/library-chain/README.md), [async tests](../tests/library-async/README.md), and [Go requirements](component-library-go.md) explain the tested paths. Application networking is independent of dependency fetching; library execution never downloads code.
 
-## Source API inference
+## Source APIs
 
-`wisp build` derives contracts from public Rust and Go functions and non-static
-C/C++ free-function definitions. Rust, Go and C++ signatures support scalars, strings, byte buffers,
-plain records, aliases and synchronous results. Rust uses `String`, `Vec<u8>` and
-`Result<T, E>`; Go uses `string`, `[]byte` and `(T, error)`; freestanding C++ uses
-`wisp::string`, `wisp::bytes` and `wisp::result<T, E>`. C source retains scalar
-signatures. Other lists, recursive records, pointers, borrowed Rust values,
-variadics, generic public functions and records, and overloads are rejected.
+Wisp infers contracts from ordinary C++, Go and Rust source APIs. General
+lists, optional values, enums, records and synchronous results map to WIT,
+then wit-bindgen 0.61.1 generates the canonical ABI. Source adapters convert
+ordinary language values to the generated types. Explicit WIT remains optional
+and gives direct access to upstream generated APIs. Inferred scalar C source
+uses the C++ compiler subset; authored C contracts use the upstream C generator.
 
-Generated C++ dependency headers and Rust guest crates support these rich values.
-Portable Go guest dependencies remain scalar-only. Source builds can export rich
-Go APIs for Rust and Node consumers. Go errors become string payloads; their
-canonical arguments and results share a 4 MiB transient arena per instance.
-C++ input views are borrowed for one call, while imported buffers own their data.
-C++ inference reads record definitions from configured source files, not through
-header includes. Source inference remains narrower than the prebuilt-Component
-packer. [Examples and ownership rules](project-builds.md#write-ordinary-application-code)
-describe the supported source representations.
+C/C++ use a Wasm-hosted Clang driver with WASI SDK 34 target headers, libc,
+libc++, libc++abi and compiler-rt. Exceptions and RTTI remain disabled.
+Go uses the stock Wasm-hosted toolchain and upstream go-pkg v0.2.3 source.
+Published Go guest imports support rich synchronous values; portable native
+Wago bindings retain scalar signatures. Rich native Go clients retain their
+existing typed host API.
 
-Source compiler installation and execution are verified on Linux x86_64. The
-library consumer platforms above are separate from that compiler-host support.
+Rust's dependency-free synchronous runtime projection currently rejects flags,
+resources and async handles. Ordinary prebuilt-Component Rust packages retain
+their broader existing guest/native support. Other source languages keep their
+adapter-specific ABI limits.
+
+See [project builds](project-builds.md) for generated package layouts and examples.

@@ -1,0 +1,2 @@
+# Compare this pinned upstream fixture byte for byte, including whitespace.
+/crates/wisp/tests/fixtures/go-upstream-guest/test_rich_go_values/wit_bindings.go -whitespace

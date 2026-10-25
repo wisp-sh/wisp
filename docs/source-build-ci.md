@@ -1,6 +1,6 @@
 # Source compiler CI
 
-`.github/workflows/source-build.yml` tests the Wasm-hosted C++, Go and Rust
+`.github/workflows/source-build.yml` tests the Wasm-hosted C/C++, Go and Rust
 compilers on a fresh Linux x86_64 installation. It builds the CLI from the
 locked repository, installs five schema 4 compiler bundles, builds Wisp's shared
 Wasmtime hosts from pinned recipes, and runs `toolchain doctor` before and after
@@ -52,8 +52,12 @@ Node 24.20.0 and native Go 1.27.1 come from the repository's existing archive
 locks. The npm dependency graph comes from `setup-tooling/package-lock.json`.
 The native Rust builder uses Rust 1.98.1 in the same pinned Debian userspace as
 the existing acceptance job. Rust 1.99.0 separately builds the two shared
-Wasmtime hosts. These tools install dependencies and execute host packages.
-The application source compilers run inside Wasm.
+Wasmtime hosts. These tools provision dependencies and handle Serde host-package
+admission.
+The application source compilers run inside Wasm. Guest APIs are inferred from ordinary source functions or supplied as authored
+WIT, then generated with pinned `wit-bindgen-cli 0.61.1`.
+C/C++ packages must include the WASI SDK target sysroot, and Go packages must
+include the pinned upstream WIT runtime sources.
 
 Host setup also downloads the checksum-pinned Wasmtime 50.0.0 Preview 1 reactor
 adapter used by Wisp's package runtime. The `wasm-tools` bundle's own adapter
@@ -62,50 +66,47 @@ does not replace that package compatibility pin.
 Setup separately installs the checksum-pinned WAC 0.10.1 executable from the
 existing Component-chain lock. `acceptance-env.sh` exports `WISP_WAC` to that
 copy, and the setup receipt records its URL, hash and version. Full acceptance
-checks WAC and the configured native clangd before building any sources.
+checks WAC before building the mixed-language Component.
 
 ## Coverage and evidence
 
-The full job runs these checks without optional skips:
+The full job runs three acceptance groups:
 
-- C++, Go and mixed source projects, local Cargo/npm/OCI publication, identical
-  OCI fetches, and execution of installed npm packages after registry shutdown.
-- Go importing a packaged C++ Component and C++ importing a packaged Go
-  Component. Producer source and compiler paths are absent from consumer builds.
-- Rust `std`, source-built `Serialize` and `Deserialize` derives, vendored
-  Serde 1.0.228 and serde_json 1.0.150, and Wasm dependency build scripts.
-  A Serde derive on an invalid union must fail with the expected diagnostic and
-  leave no application output. A native Rust query guard rejects application
-  source compilation.
-- All four Rust import flows: Go imports Rust, C++ imports Rust, Rust imports Go,
-  and Rust imports C++. Local registries stop before consumer builds; the Go
-  proxy and module cache are removed. Scalar calls include an exact 64-bit value.
-- Generated Rust packages installed through a local sparse Cargo registry and
-  executed with `cargo run --locked --offline` after that registry stops. This
-  includes the C++, Go, Rust and Serde producers and the composed import flows.
-- Strings, byte buffers, records and typed results compiled from C++, Go and
-  Rust sources. Both npm and native Rust consumers check Unicode, embedded NULs,
-  100 KB strings, exact 64-bit record fields, error values and repeated buffer
-  ownership transfers. Nine-string records exercise indirect parameters, and
-  mixed float/integer results check canonical variant representations.
-- C++ and Rust importing the installed Go rich-value provider. String copies
-  survive later calls, and returned buffers, records and errors survive 1,000
-  import cycles in npm and native Rust consumers.
-- Nested results, unit payloads and records containing results in C++ and Rust
-  source projects.
+- `sources` runs `run.py` against the C, C++, Go, Rust and mixed
+  examples. Each build uses `--component-only`, checks the inferred or authored contract mode
+  and the Component hash, then transpiles with JCO and executes its exports.
+  Calls cover scalar values, exact 64-bit integers, and the mixed Go consumer's
+  scalar and rich calls into its C++ dependency. The Go check explicitly clears
+  the shim's environment, arguments and preopens before testing runtime access.
+  A deliberate compiler error must leave no published output.
+- `values` runs `values.py` against the three `examples/build-values` projects.
+  The shared `examples/build-values/go/verify.mjs` checks all three transpiled
+  Components. It covers Unicode, byte buffers, exact 64-bit record fields,
+  lists, optional enums, nested lists of options, records and typed results.
+- `serde` compiles Rust `std`, vendored Serde 1.0.228 and serde_json 1.0.150,
+  source-built `Serialize` and `Deserialize` derives, and Wasm dependency build
+  scripts. Its authored WIT exports `roundtrip-score`; the implementation uses
+  the upstream-generated `Guest` trait. This case retains package admission,
+  compiler and macro traces, a native Rust query guard, and the invalid-union
+  diagnostic check. A failed build must leave no application output.
 
-The repository contains the ordinary Serde fixture and its Cargo.lock under
+The Serde fixture and its Cargo.lock live under
 `tests/source-build/fixtures/serde`. Setup authenticates its crate downloads
-with `cargo vendor --locked`. The verifier checks every vendored file and crate
-checksum, source-build and split-LLVM receipts, successful macro interpreter
-traces, Wasm build-script commands and the admitted Component result.
+with `cargo vendor --locked`. The verifier checks vendored files and crate
+checksums, compiler receipts, successful macro interpreter traces, Wasm
+build-script commands and the admitted Component result. It preserves the
+fixture's source bytes and stages generated bindings separately.
+
+Registry publication, package installation and cross-language library consumers
+are covered by `tests/library-chain`. Source compiler acceptance concentrates on
+WIT bindings, Wasm-hosted compilation and runtime behavior.
 
 `setup-inputs.json` records the acquisition manifest digest, all five bundle
 digests, the installed prefix and the CLI hash. `inputs.json` records compiler
 and execution-host hashes plus the tested source files. `compiler-receipts.json`
 collects each actual build receipt and rejects a compiler hash that differs
-from preflight. Native consumers retain their Cargo.lock, publication requests
-and runtime results. Logs, receipts and exact application Components are saved
+from preflight. JCO output and runtime results stay beside the source-build
+evidence. Logs, receipts and exact application Components are saved
 in the `source-build-linux-amd64-evidence` artifact, including failed runs.
 
 A passing full run has `status: "passed"`, `complete: true` and
@@ -119,7 +120,7 @@ disposable Debian 13 container with root access. After installing the pinned
 native prerequisites and building the CLI and its matching worker:
 
 ```sh
-cargo build --locked -p wisp -p wisp-worker
+CARGO_BUILD_JOBS=1 cargo build --locked -p wisp -p wisp-worker
 ```
 
 Verifier snapshots must retain both binaries. The worker runs compiler jobs and
@@ -143,5 +144,24 @@ manifest checks. Shared execution hosts still use the pinned Wisp bootstrap.
 An existing configured environment can run `ci.py` without `--prefix` and
 `--setup-evidence`; its result explicitly leaves `cleanInstallVerified` false.
 Set `WISP_SOURCE_SERDE` or pass `--serde-project` to a copy of the fixture with
-its authenticated `vendor` directory. `WISP_CLANGD` selects the native clangd
-used for C++ editor checks.
+its authenticated `vendor` directory. Use `--case sources`, `--case values` or
+`--case serde` to run one group.
+
+The smaller runners can also run independently in a configured environment:
+
+```sh
+python3 tests/source-build/run.py --cli target/debug/wisp \
+  --out out/source-apis --runtime-cache "$HOME/.cache/wisp/source-build"
+python3 tests/source-build/values.py --cli target/debug/wisp \
+  --out out/source-values --cache "$HOME/.cache/wisp/source-build"
+```
+
+Both need `WISP_NODE`, the installed JCO entrypoint in `WISP_JCO`, and the pinned
+`WISP_WIT_BINDGEN`. JavaScript output resolves the existing JCO installation's
+runtime shims; the runners do not install npm packages. Use disk-backed output
+and cache directories and check host capacity before compiler acceptance.
+
+`languages.py` covers the additional packaged scalar adapters using source
+signature inference or adjacent WIT contracts. Python exercises the existing
+fixed `wisp:python/api@0.1.0` scalar profile. Each resulting Component is invoked
+with Wasmtime to verify `add(20, 22) == 42`.

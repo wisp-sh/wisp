@@ -1,0 +1,2 @@
+package demo:c-math@0.1.0;
+world library { export add: func(a:u32,b:u32)->u32; }

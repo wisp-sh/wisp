@@ -1,0 +1,11 @@
+[package]
+name = "demo:go-math"
+version = "0.1.0"
+[metadata]
+description = "Go arithmetic compiled with the Go Wasm toolchain"
+license = "MIT"
+[build]
+compiler = "go"
+wit = "wit"
+world = "library"
+project = "src"

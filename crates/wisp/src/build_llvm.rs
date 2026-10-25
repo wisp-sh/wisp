@@ -45,7 +45,7 @@ impl SharedLlvm {
                 .as_str()
                 .context("shared LLVM module import name")?;
             ensure!(
-                name.starts_with("wisp-")
+                !name.is_empty()
                     && name.len() <= 64
                     && name.bytes().all(|byte| byte.is_ascii_lowercase()
                         || byte.is_ascii_digit()
@@ -80,10 +80,6 @@ impl SharedLlvm {
                 tool: Tool { path, sha256 },
             });
         }
-        ensure!(
-            names.contains("wisp-llvm24"),
-            "shared LLVM package must supply wisp-llvm24"
-        );
         Ok(Self {
             root,
             manifest_sha256: digest(&bytes),

@@ -18,7 +18,7 @@ fn reject(project: &Path, expected: &str) {
         .arg(project)
         .arg("--out")
         .arg(&out)
-        .env_remove("WISP_WASMTIME")
+        .env("WISP_WASMTIME", project.join("missing-execution-host"))
         .output()
         .unwrap();
     assert!(!result.status.success());
@@ -60,12 +60,12 @@ fn adapter_accepts_a_wit_file_and_top_level_world_before_tool_resolution() {
     assert!(!root.path().join("dist").exists());
 }
 #[test]
-fn rejects_unimplemented_bindings_before_running_compilers() {
+fn accepts_wit_lists_before_resolving_the_execution_host() {
     let root = fixture(
         CONFIG,
         "package test:build@0.1.0; world library { export answer: func() -> list<u16>; }",
     );
-    reject(root.path(), "unsupported-build-binding-type");
+    reject(root.path(), "set WISP_WASMTIME");
 }
 #[test]
 fn rejects_build_cycles_before_running_compilers() {
@@ -146,7 +146,10 @@ fn rust_requires_a_wisp_execution_host_before_loading_its_package() {
         .arg(root.path())
         .arg("--component-only")
         .env_remove("WISP_RUST")
-        .env_remove("WISP_RUST_WASMTIME")
+        .env(
+            "WISP_RUST_WASMTIME",
+            root.path().join("missing-execution-host"),
+        )
         .output()
         .unwrap();
     assert!(!result.status.success());
@@ -258,6 +261,7 @@ fn imports_prebuilt_component_without_loading_a_compiler() {
     let receipt: serde_json::Value =
         serde_json::from_slice(&fs::read(out.join("build/build.json")).unwrap()).unwrap();
     assert_eq!(receipt["units"]["main"]["compiler"], "component");
+    assert_eq!(receipt["contractMode"], "wit");
     assert_eq!(receipt["units"]["main"]["commands"], serde_json::json!([]));
     assert_eq!(
         receipt["units"]["main"]["inputs"]["dependency.wasm"],
@@ -321,12 +325,17 @@ fn rejects_conflicting_prebuilt_config_and_path_escape() {
 }
 
 #[test]
-fn rejects_stale_checked_in_go_bindings_before_running_compilers() {
+fn checked_in_go_bindings_do_not_require_an_exact_generated_copy() {
     let config = CONFIG
         .replace("compiler='clang'", "compiler='go'")
         .replace("sources=['main.cpp']", "project='go'");
     let root = fixture(&config, WIT);
     fs::create_dir(root.path().join("go")).unwrap();
+    fs::write(
+        root.path().join("go/go.mod"),
+        "module example.org/application\n\ngo 1.27.0\n",
+    )
+    .unwrap();
     fs::write(
         root.path().join("go/main.go"),
         "package main\nfunc main() {}\n",
@@ -337,14 +346,15 @@ fn rejects_stale_checked_in_go_bindings_before_running_compilers() {
         "package main\n// stale bindings\n",
     )
     .unwrap();
-    reject(
-        root.path(),
-        "checked-in wisp_bindings.go differs from generated WIT bindings",
+    reject(root.path(), "set WISP_WASMTIME");
+    assert_eq!(
+        fs::read_to_string(root.path().join("go/wisp_bindings.go")).unwrap(),
+        "package main\n// stale bindings\n"
     );
 }
 
 #[test]
-fn rejects_unsupported_rust_api_before_loading_a_compiler() {
+fn rejects_unsupported_inferred_rust_api_before_loading_a_compiler() {
     let root = tempfile::tempdir().unwrap();
     fs::create_dir(root.path().join("src")).unwrap();
     fs::write(
@@ -363,4 +373,29 @@ fn rejects_unsupported_rust_api_before_loading_a_compiler() {
     )
     .unwrap();
     reject(root.path(), "unsupported public Rust type");
+}
+
+#[test]
+fn infers_cpp_collections_options_and_enums_without_a_wit_file() {
+    let root = tempfile::tempdir().unwrap();
+    fs::write(root.path().join("wisp.toml"), "[package]\nname='test:inferred'\nversion='0.1.0'\n[build]\ncompiler='clang'\nsources=['main.cpp']\n").unwrap();
+    fs::write(root.path().join("main.cpp"), "#include <vector>\n#include <optional>\n#include <string>\nenum class Mode { Fast = 7, Careful = 42 };\nstd::vector<std::optional<Mode>> choices(std::vector<std::optional<Mode>> value) { return value; }\nstd::vector<std::string> labels(std::vector<std::string> value) { return value; }\n").unwrap();
+    reject(root.path(), "set WISP_WASMTIME");
+}
+
+#[test]
+fn infers_go_collections_options_and_enums_without_a_wit_file() {
+    let root = tempfile::tempdir().unwrap();
+    fs::write(
+        root.path().join("wisp.toml"),
+        "[package]\nname='test:inferred'\nversion='0.1.0'\n[build]\ncompiler='go'\nproject='.'\n",
+    )
+    .unwrap();
+    fs::write(
+        root.path().join("go.mod"),
+        "module example.org/inferred\n\ngo 1.27.0\n",
+    )
+    .unwrap();
+    fs::write(root.path().join("main.go"), "package main\ntype Mode uint32\nconst (\n Fast Mode = iota\n Careful\n)\nfunc Choices(value []*Mode) []*Mode { return value }\nfunc Labels(value []string) []string { return value }\nfunc main() {}\n").unwrap();
+    reject(root.path(), "set WISP_WASMTIME");
 }

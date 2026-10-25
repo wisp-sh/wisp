@@ -8,6 +8,18 @@ use std::{
     path::{Path, PathBuf},
 };
 
+#[path = "build_go_wit_runtime.rs"]
+mod wit_runtime;
+
+/// Install only authenticated, local runtime source into the staged project.
+/// This is source staging; no dependency installer or native compiler runs.
+pub fn stage_wit_runtime(source: &Path, tools: &Toolchain) -> Result<()> {
+    let support = std::env::var_os("WISP_GO_WIT_RUNTIME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| tools.root.join("wit-runtime"));
+    wit_runtime::stage(source, &support)
+}
+
 pub struct Toolchain {
     pub root: PathBuf,
     pub goroot: PathBuf,
@@ -353,8 +365,8 @@ pub fn published_component(project: &Path, module: &str) -> Result<Option<(PathB
     )))
 }
 
-fn project_packages(source: &Path) -> Result<(String, BTreeMap<String, Package>, Vec<String>)> {
-    let prefix = if source.join("go.mod").is_file() {
+pub(super) fn module_prefix(source: &Path) -> Result<String> {
+    Ok(if source.join("go.mod").is_file() {
         let module = fs::read_to_string(source.join("go.mod"))?;
         Regex::new(r"(?m)^\s*module\s+(\S+)")?
             .captures(&module)
@@ -363,7 +375,10 @@ fn project_packages(source: &Path) -> Result<(String, BTreeMap<String, Package>,
             .to_owned()
     } else {
         "project".into()
-    };
+    })
+}
+fn project_packages(source: &Path) -> Result<(String, BTreeMap<String, Package>, Vec<String>)> {
+    let prefix = module_prefix(source)?;
     fn discover(
         dir: &Path,
         source: &Path,
@@ -503,7 +518,6 @@ pub(super) fn vendor_roots(source: &Path) -> Result<BTreeSet<PathBuf>> {
         .collect())
 }
 
-/// Find Wisp modules on the same reachable Go import graph used for compilation.
 pub(super) fn component_modules(source: &Path) -> Result<BTreeSet<String>> {
     let (_, packages, ordered) = project_packages(source)?;
     let vendor = source.join("vendor");
@@ -616,19 +630,27 @@ pub fn compile(
         }
     }
     write(work.join("link.importcfg"), importcfg(&archives))?;
+    let mut link_args = vec!["-buildmode=c-shared".into(), "-linkmode=internal".into()];
+    // Upstream's canonical allocator links runtime.sbrk for allocations made
+    // before Go initialization. The compiler and linker remain Wasm tools.
+    if ordered
+        .iter()
+        .any(|name| name == "go.bytecodealliance.org/pkg/wit/runtime")
+    {
+        link_args.push("-checklinkname=0".into());
+    }
+    link_args.extend([
+        "-importcfg".into(),
+        "/build/link.importcfg".into(),
+        "-o".into(),
+        "/build/core.wasm".into(),
+        main,
+    ]);
     run_wasm(
         runtime,
         &tools.link,
         false,
-        &[
-            "-buildmode=c-shared".into(),
-            "-linkmode=internal".into(),
-            "-importcfg".into(),
-            "/build/link.importcfg".into(),
-            "-o".into(),
-            "/build/core.wasm".into(),
-            main,
-        ],
+        &link_args,
         &[(work, "/build"), (&tools.goroot, "/goroot")],
         &[
             ("PWD", "/build"),

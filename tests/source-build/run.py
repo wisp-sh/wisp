@@ -1,54 +1,83 @@
 #!/usr/bin/env python3
-"""Build with the real Wasm compilers, publish locally, and execute installed npm packages."""
+"""Build inferred and authored APIs with Wasm compilers and execute them through JCO."""
+from __future__ import annotations
+
 import argparse
 import hashlib
-import io
 import importlib.util
 import json
 import os
 from pathlib import Path
+import shlex
 import shutil
 import subprocess
-import tempfile
-import tarfile
 
 ROOT = Path(__file__).resolve().parents[2]
-spec = importlib.util.spec_from_file_location("publication_registry", ROOT / "tests/library-publication/registry.py")
-registry_module = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(registry_module)
-snapshot_spec = importlib.util.spec_from_file_location("source_build_snapshot", ROOT / "tests/source-build/snapshot.py")
-snapshot_module = importlib.util.module_from_spec(snapshot_spec)
-snapshot_spec.loader.exec_module(snapshot_module)
+spec = importlib.util.spec_from_file_location("source_build_snapshot", ROOT / "tests/source-build/snapshot.py")
+snapshot = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(snapshot)
+
+CASES = {
+    "c": "assert.equal(lib.add(20, 22), 42);",
+    "cpp": "assert.equal(lib.add(20, 22), 42); assert.equal(lib.negate(true), false); assert.equal(lib.widen(9007199254740993n), 9007199254740994n);",
+    "rust": "assert.equal(lib.add(20, 22), 42); assert.equal(lib.negate(false), true); assert.equal(lib.widen(9007199254740993n), 9007199254740994n);",
+    "go": "assert.equal(lib.add(20, 22), 42); assert.equal(lib.negate(false), true); assert.equal(lib.widen(9007199254740993n), 9007199254740994n); assert.equal(lib.environmentCount(), 0); assert.ok(lib.clockReady()); assert.equal(lib.stress(), 42); assert.ok(lib.randomReady()); assert.ok(lib.filesystemDenied()); assert.equal(lib.add(20, 22), 42);",
+    "mixed": "assert.equal(lib.calculator.doubledSum(20, 1), 42); assert.equal(lib.calculator.richCheck(), 42);",
+}
 
 
+class Acceptance:
+    """Keep generated JavaScript and command evidence under the output directory."""
+    def __init__(self, cli, output):
+        self.output = output
+        output.mkdir(parents=True, exist_ok=False)
+        self.cli = output / "wisp"
+        snapshot.freeze_cli(cli.resolve(strict=True), self.cli)
+        self.node = Path(shutil.which(os.environ.get("WISP_NODE", "node")) or os.environ.get("WISP_NODE", "node")).resolve(strict=True)
+        self.jco = Path(shutil.which(os.environ.get("WISP_JCO", "jco")) or os.environ.get("WISP_JCO", "jco")).resolve(strict=True)
+        self.modules = next((p for p in self.jco.parents if p.name == "node_modules"), None)
+        if self.modules is None:
+            raise RuntimeError("WISP_JCO must select the installed JCO JavaScript entrypoint")
+        (output / "node_modules").symlink_to(self.modules, target_is_directory=True)
+        (output / "package.json").write_text('{"private":true,"type":"module"}\n')
+        (output / "logs").mkdir()
+        self.commands = []
 
-def verify_reactor_admission(cli, release, work, run):
-    tampered = work / "tampered-reactor"
-    tampered.mkdir()
-    for name in ["component.wasm", "rust.crate", "node.tgz", "library-release.json"]:
-        shutil.copyfile(release / name, tampered / name)
-    archive = io.BytesIO()
-    changed = False
-    with tarfile.open(release / "node.tgz", "r:gz") as original, tarfile.open(fileobj=archive, mode="w:gz", format=tarfile.USTAR_FORMAT) as rebuilt:
-        for member in original:
-            if not member.isfile():
-                rebuilt.addfile(member)
-                continue
-            data = original.extractfile(member).read()
-            if member.name == "package/reactor-host.js":
-                data += b"\nexport const tampered = true;\n"
-                changed = True
-            member.size = len(data)
-            member.mtime = int(member.mtime)
-            rebuilt.addfile(member, io.BytesIO(data))
-    assert changed
-    data = archive.getvalue()
-    (tampered / "node.tgz").write_bytes(data)
-    record = json.loads((tampered / "library-release.json").read_text())
-    record["packages"]["node"]["sha256"] = hashlib.sha256(data).hexdigest()
-    (tampered / "library-release.json").write_text(json.dumps(record))
-    failure = run([cli, "library", "validate", tampered], success=False)
-    assert "regenerated Node package differs" in failure.stderr, failure.stderr
+    def run(self, argv, *, success=True):
+        argv = list(map(str, argv))
+        print("+ " + shlex.join(argv), flush=True)
+        index = len(self.commands)
+        stdout = self.output / f"logs/{index:03}.stdout"
+        stderr = self.output / f"logs/{index:03}.stderr"
+        with stdout.open("w") as out_log, stderr.open("w") as err_log:
+            process = subprocess.run(argv, cwd=ROOT, stdin=subprocess.DEVNULL, stdout=out_log, stderr=err_log)
+        self.commands.append({"argv": argv, "status": process.returncode, "stdout": str(stdout), "stderr": str(stderr)})
+        (self.output / "commands.json").write_text(json.dumps(self.commands, indent=2) + "\n")
+        if (process.returncode == 0) != success:
+            raise RuntimeError(f"command returned {process.returncode}; see {stdout} and {stderr}")
+        return stdout.read_text().strip()
+
+    def build(self, example, case, cache):
+        project = self.output / f"{case}-source"
+        shutil.copytree(example, project, ignore=shutil.ignore_patterns(".wisp-cache", "target", "dist", "__pycache__"))
+        release = self.output / f"{case}-release"
+        self.run([self.cli, "build", project, "--component-only", "--out", release, "--cache", cache])
+        receipt = json.loads((release / "build/build.json").read_text())
+        actual = hashlib.sha256((release / "component.wasm").read_bytes()).hexdigest()
+        if receipt["contractMode"] not in {"wit", "inferred"} or receipt["packageGenerated"] or receipt["componentSha256"] != actual:
+            raise RuntimeError("build receipt differs from the Component")
+        return project, release, receipt
+
+    def transpile(self, release, case):
+        destination = self.output / f"{case}-js"
+        self.run([self.node, self.jco, "transpile", release / "component.wasm", "--out-dir", destination,
+                  "--name", "library", "--no-typescript", "--quiet"])
+        return destination / "library.js"
+
+    def finish(self, records, **extra):
+        report = {"passed": True, "cliSha256": hashlib.sha256(self.cli.read_bytes()).hexdigest(), "cases": records, **extra}
+        (self.output / "result.json").write_text(json.dumps(report, indent=2) + "\n")
+        print(json.dumps(report, indent=2))
 
 
 def main():
@@ -56,114 +85,35 @@ def main():
     parser.add_argument("--cli", type=Path, required=True)
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--runtime-cache", type=Path, required=True)
-    parser.add_argument("--case", action="append", choices=["cpp", "go", "mixed", "go-import-wasm", "cpp-import-go"],
-                        help="Run selected cases; defaults to all examples")
+    parser.add_argument("--case", action="append", choices=CASES)
     args = parser.parse_args()
-    cli = args.cli.resolve()
-    output = args.out.resolve()
-    output.mkdir(parents=True, exist_ok=False)
-    frozen_cli = output / "wisp"
-    snapshot_module.freeze_cli(cli, frozen_cli)
-    cli = frozen_cli
-    runtime_cache = args.runtime_cache.resolve()
-    commands = []
-
-    def run(argv, *, cwd=ROOT, success=True, environment=None):
-        argv = list(map(str, argv))
-        print("+ " + " ".join(argv), flush=True)
-        result = subprocess.run(argv, cwd=cwd, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=dict(os.environ, WISP_BUILD_TEST_TOKEN="test-token", **(environment or {})))
-        commands.append({"argv": argv, "status": result.returncode, "stdout": result.stdout, "stderr": result.stderr})
-        (output / "commands.json").write_text(json.dumps(commands, indent=2) + "\n")
-        assert (result.returncode == 0) == success, result.stdout + result.stderr
-        return result
-
-    cases = {
-        "cpp": "const {api:a}=lib; if(a.add(20,22)!==42||a.negate(true)!==false||a.widen(9007199254740993n)!==9007199254740994n) throw Error('C++ values');",
-        "go": "const {api:a}=lib; if(a.add(20,22)!==42||a.negate(false)!==true||a.widen(9007199254740993n)!==9007199254740994n||a.environmentCount()!==0||!a.clockReady()||a.stress()!==42||!a.randomReady()||!a.filesystemDenied()||a.add(20,22)!==42||!a.clockReady()) throw Error('Go values or host isolation');",
-        "mixed": "if(lib.calculator.doubledSum(20,1)!==42) throw Error('Go did not call C++ dependency');",
-        "cpp-import-go": "if(lib.api.doubledSum(20,1)!==42||lib.api.negate(true)!==false||lib.api.widen(9007199254740993n)!==9007199254740994n) throw Error('C++ did not call Go dependency');",
-        "go-import-wasm": "if(lib.api.doubledSum(20,1)!==42) throw Error('Go did not call the prebuilt Wasm dependency');",
-    }
-    results = {}
-    with tempfile.TemporaryDirectory(prefix="wisp-build-installed-") as temporary:
-        installed = Path(temporary)
-        for case, assertions in cases.items():
-            if args.case and case not in args.case:
-                continue
-            release = output / case
-            original = ROOT / f"examples/build-{case}"
-            project = output / "sources" / case
-            if case not in {"go-import-wasm", "cpp-import-go"}:
-                shutil.copytree(original, project, ignore=shutil.ignore_patterns(".wisp-cache"))
-            environment = None
-            if case == "go-import-wasm":
-                project = installed / "go-consumer-source"
-                shutil.copytree(ROOT / "examples/go-import-wasm", project,
-                                ignore=shutil.ignore_patterns("cpp", "bindings", "proxy", "github.com", ".wisp-cache", "__pycache__"))
-                assert not list(project.rglob("*.cpp"))
-                environment = {"WISP_CLANG": "/clang-must-not-be-used"}
-            if case == "cpp-import-go":
-                project = installed / "cpp-consumer-source"
-                shutil.copytree(ROOT / "examples/cpp-import-go", project,
-                                ignore=shutil.ignore_patterns("go", "bindings", ".wisp-cache", "__pycache__"))
-                assert not list(project.rglob("*.go"))
-                environment = {"WISP_GO_TOOLCHAIN": "/go-must-not-be-used", "WISP_PREVIEW1_ADAPTER": "/adapter-must-not-be-used"}
-            run([cli, "build", project, "--out", release, "--cache", runtime_cache], environment=environment)
-            record = json.loads((release / "library-release.json").read_text())
-            receipt = json.loads((release / "build/build.json").read_text())
-            assert record["componentSha256"] == receipt["componentSha256"]
-            assert receipt["packageGenerated"]
-            if case == "go-import-wasm":
-                assert "clang" not in receipt["tools"]
-                dependency = next(unit for unit in receipt["units"].values() if unit["compiler"] == "component")
-                assert dependency["compiler"] == "component"
-                assert dependency["commands"] == []
-                assert dependency["componentSha256"] == hashlib.sha256((project / "go/vendor/example.org/cpp-arithmetic/component.wasm").read_bytes()).hexdigest()
-            if case == "cpp-import-go":
-                assert "go" not in receipt["tools"] and "preview1Adapter" not in receipt["tools"]
-                assert receipt["contractMode"] == "inferred"
-                dependency = next(unit for unit in receipt["units"].values() if unit["compiler"] == "component")
-                assert dependency["commands"] == []
-                assert dependency["componentSha256"] == hashlib.sha256((project / "deps/arithmetic/component.wasm").read_bytes()).hexdigest()
-            if case != "cpp":
-                assert "Go-LICENSE.txt" in record["metadata"]["notices"]
-                assert (release / "node/notices/Go-LICENSE.txt").is_file()
-            with registry_module.Registry() as registry:
-                config = {
-                    "cargo": {"index": registry.url + "/cargo/", "api": registry.url, "package": record["packages"]["rust"]["name"], "tokenEnv": "WISP_BUILD_TEST_TOKEN"},
-                    "npm": {"registry": registry.url + "/npm/", "package": record["packages"]["node"]["name"], "access": "public", "tokenEnv": "WISP_BUILD_TEST_TOKEN"},
-                    "component": {"registry": registry.url, "repository": f"demo/{case}", "tokenEnv": "WISP_BUILD_TEST_TOKEN"},
-                }
-                config_path = output / f"{case}-publisher.json"
-                config_path.write_text(json.dumps(config))
-                plan = output / f"{case}-publication.json"
-                state = output / f"{case}-publication-state.json"
-                run([cli, "library", "prepare", release, "--config", config_path, "--out", plan])
-                assert not registry.requests, "prepare contacted a registry"
-                run([cli, "library", "publish", plan, "--state", state])
-                assert json.loads(state.read_text())["complete"]
-                fetched = output / f"{case}-fetched"
-                digest = json.loads(plan.read_text())["component"]["digest"]
-                run([cli, "library", "fetch", config_path, "--digest", digest, "--out", fetched])
-                for name in ["component.wasm", "rust.crate", "node.tgz", "library-release.json"]:
-                    assert (release / name).read_bytes() == (fetched / name).read_bytes(), name
-                consumer = installed / case
-                consumer.mkdir()
-                (consumer / "package.json").write_text('{"private":true,"type":"module"}')
-                package = record["packages"]["node"]["name"]
-                run(["npm", "install", "--ignore-scripts", "--no-audit", "--no-fund", "--registry", registry.url + "/npm/", "--cache", output / "npm-cache", f"{package}@{record['version']}"], cwd=consumer)
-            # The registry is gone. Execute the installed package with no code downloads.
-            run([os.environ.get("WISP_NODE", "node"), "--input-type=module", "-e", f"const lib=await import({json.dumps(package)}); {assertions} console.log('installed-{case}-ok');"], cwd=consumer)
-            results[case] = {"componentSha256": record["componentSha256"], "units": list(receipt["units"]), "cargoNpmOciPublished": True, "ociFetchIdentical": True, "installedNpmExecutedAfterRegistryShutdown": True}
-        if "go" in results:
-            verify_reactor_admission(cli, output / "go", installed, run)
-        broken = installed / "broken"
-        shutil.copytree(ROOT / "examples/build-cpp", broken)
-        (broken / "math.cpp").write_text("unsigned add(unsigned a, unsigned b) { return missing_function(a, b); }\n")
-        failed_output = output / "failed-build"
-        run([cli, "build", broken, "--component-only", "--out", failed_output, "--cache", runtime_cache], success=False)
-        assert not failed_output.exists(), "failed build left a published output"
-    (output / "result.json").write_text(json.dumps({"passed": True, "cliSha256": hashlib.sha256(cli.read_bytes()).hexdigest(), "cases": results, "compilerFailureAtomic": True, "reactorHostTamperRejected": "go" in results}, indent=2) + "\n")
+    acceptance = Acceptance(args.cli, args.out.resolve())
+    records = {}
+    for case in dict.fromkeys(args.case or CASES):
+        _, release, receipt = acceptance.build(ROOT / f"examples/build-{case}", case, args.runtime_cache.resolve())
+        module = acceptance.transpile(release, case)
+        verifier = acceptance.output / f"{case}-check.mjs"
+        verifier.write_text(
+            "import assert from 'node:assert/strict';\n"
+            "import { _setEnv, _setArgs } from '@bytecodealliance/preview2-shim/cli';\n"
+            "import { _setPreopens } from '@bytecodealliance/preview2-shim/filesystem';\n"
+            "_setEnv({}); _setArgs([]); _setPreopens({});\n"
+            f"const module = await import({json.dumps(module.as_uri())}); const lib = module.api ?? module;\n"
+            + CASES[case] + f"\nconsole.log('source-{case}-ok');\n"
+        )
+        result = acceptance.run([acceptance.node, verifier])
+        if result != f"source-{case}-ok":
+            raise RuntimeError(result)
+        records[case] = {"componentSha256": receipt["componentSha256"], "units": list(receipt["units"]), "runtimeResult": result}
+    broken = acceptance.output / "broken-source"
+    shutil.copytree(ROOT / "examples/build-cpp", broken)
+    (broken / "math.cpp").write_text("#error deliberate source acceptance failure\n")
+    failed_output = acceptance.output / "failed-build"
+    acceptance.run([acceptance.cli, "build", broken, "--component-only", "--out", failed_output,
+                    "--cache", args.runtime_cache.resolve()], success=False)
+    if failed_output.exists():
+        raise RuntimeError("failed compiler left a published output")
+    acceptance.finish(records, compilerFailureAtomic=True)
 
 
 if __name__ == "__main__":

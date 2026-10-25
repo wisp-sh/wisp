@@ -1,0 +1,9 @@
+package test:rich-go@0.1.0;
+interface values {
+  enum mode { fast, careful }
+  record payload { text: string, numbers: list<u32>, maybe: option<mode> }
+  echo: func(value: payload) -> payload;
+  choices: func(value: list<option<mode>>) -> list<option<mode>>;
+}
+world consumer { import values; }
+world library { export values; }

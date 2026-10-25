@@ -24,13 +24,14 @@ toolchain for each source language.
 - **Many source languages.** `wisp build` compiles C/C++, Go, Rust, Zig,
   AssemblyScript, Nim, JavaScript, TypeScript, Python, Grain, Bend 2, Goose,
   Swift, Java and Kotlin with Wasm-hosted compilers.
-- **Generated APIs.** For Rust, Go and C++, public functions become the package
-  API, including scalars, strings, byte buffers, records and synchronous
-  results. Other languages use explicit typed exports or an adjacent
-  [WIT](https://component-model.bytecodealliance.org/design/wit.html) contract.
-- **Cross-language dependencies.** Wisp discovers Components carried by Go and
-  Rust dependencies, and generates C++ headers for installed packages. For
-  example, Go can import a C++ library, and Rust can import Go and C++.
+- **Inferred APIs.** Wisp derives contracts from ordinary C++, Go and Rust
+  functions, including lists, options, enums, records and synchronous results.
+  Pinned upstream `wit-bindgen` handles the ABI. Authored WIT is optional.
+- **Cross-language dependencies.** Wisp discovers Components in installed Go
+  and Rust packages and generates C++ headers for installed releases. Published
+  Go guest modules support rich typed imports.
+- **Standard libraries.** Wasm-hosted Clang uses WASI SDK's libc and libc++;
+  Go compiles its standard library and upstream binding runtime inside Wasm.
 - **Validated releases.** Each build produces a release that can be validated
   and published to local Cargo, npm, OCI or Go registries.
 
@@ -100,6 +101,8 @@ Omit `--go-module` if you don't need a Go module.
 | [cpp-import-go](examples/cpp-import-go/README.md) | C++ importing a Go package |
 | [cpp-import-rust](examples/cpp-import-rust/README.md) | C++ importing Rust |
 | [rust-import-wasm](examples/rust-import-wasm/README.md) | Rust importing Go and C++ |
+| [build-values](examples/build-values/README.md) | Lists, options, enums, records and results in C++, Go and Rust |
+| [build-c](examples/build-c/README.md) | C using WASI libc through the Wasm-hosted compiler |
 
 ## Platform support
 

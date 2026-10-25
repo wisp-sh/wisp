@@ -1,6 +1,6 @@
---target=wasm32-unknown-unknown
+--target=wasm32-wasip1
 -xc++
--std=c++17
+-std=c++23
 -ffreestanding
 -fno-exceptions
 -fno-rtti

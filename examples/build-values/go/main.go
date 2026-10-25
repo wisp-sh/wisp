@@ -27,3 +27,25 @@ func WideValue(value Wide) Wide { return value }
 
 type WispNote struct { Value string }
 func Note(value WispNote) WispNote { return value }
+
+// A named integer type and its constants define an enum. Numeric values remain
+// ordinary Go values; the Component API exposes the case names.
+type Mode uint8
+
+const (
+	ModeFast Mode = iota
+	ModeCareful
+)
+
+func Labels(value []string) []string { return value }
+func Selected(value *Mode) *Mode { return value }
+func Modes(value []Mode) []Mode { return value }
+func Choices(value []*Mode) []*Mode { return value }
+
+type Batch struct {
+	Labels []string
+	Selected *Mode
+	Modes []Mode
+}
+
+func BatchValue(value Batch) Batch { return value }

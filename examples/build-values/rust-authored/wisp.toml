@@ -1,0 +1,9 @@
+[package]
+name = "demo:rust-values"
+version = "0.1.0"
+
+[build]
+wit = "wit"
+world = "library"
+compiler = "rust"
+project = "."

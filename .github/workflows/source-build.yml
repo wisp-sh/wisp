@@ -91,7 +91,7 @@ jobs:
             --cli target/debug/wisp --prefix "$PWD/.tools/source-build" \
             --cache "$PWD/.downloads/source-build" --evidence "$PWD/evidence/source-build" \
             2>&1 | tee evidence/source-build/setup.log
-      - name: Compile sources, publish locally and execute native Rust and npm consumers
+      - name: Compile inferred and authored APIs and execute Component consumers
         shell: bash
         run: |
           set -euo pipefail

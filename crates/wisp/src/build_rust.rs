@@ -312,12 +312,10 @@ pub fn compile(
     toolchain: &Toolchain,
     source: &Path,
     scratch: &Path,
-    wrapper: &str,
+    wrapper: Option<&str>,
     cache: &Path,
     commands: &mut Vec<Value>,
 ) -> Result<Vec<u8>> {
-    let wrapper_path = source.join(".wisp-generated.rs");
-    write(&wrapper_path, wrapper)?;
     let mut arguments = vec![
         toolchain
             .runner
@@ -333,11 +331,6 @@ pub fn compile(
             .into(),
         "--crate-type".into(),
         "cdylib".into(),
-        "--wrapper-source".into(),
-        wrapper_path
-            .to_str()
-            .context("UTF8 Rust wrapper path")?
-            .into(),
         "--out-dir".into(),
         scratch
             .join("rust")
@@ -359,6 +352,17 @@ pub fn compile(
             .into(),
         "--offline".into(),
     ];
+    if let Some(wrapper) = wrapper {
+        let wrapper_path = source.join(".wisp-generated.rs");
+        write(&wrapper_path, wrapper)?;
+        arguments.extend([
+            "--wrapper-source".into(),
+            wrapper_path
+                .to_str()
+                .context("UTF8 Rust wrapper path")?
+                .into(),
+        ]);
+    }
     if source.join("vendor").is_dir() {
         arguments.extend([
             "--vendor-dir".into(),

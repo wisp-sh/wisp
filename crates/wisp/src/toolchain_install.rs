@@ -464,7 +464,9 @@ fn entrypoint(record: &Value, name: &str) -> Result<PathBuf> {
 }
 fn package_path(root: &Path, selected: &Selection, environment: &str) -> Result<Option<PathBuf>> {
     let (id, entry, depth) = match environment {
-        "WISP_CLANG" | "WISP_CLANG_RESOURCE_DIR" => ("wisp:clang", "clang", 0),
+        "WISP_CLANG" | "WISP_CLANG_RESOURCE_DIR" | "WISP_CLANG_WASI_SYSROOT" => {
+            ("wisp:clang", "clang", 0)
+        }
         "WISP_GO_TOOLCHAIN" => ("wisp:go", "compile", 2),
         "WISP_LLVM" => ("wisp:llvm", "llvm24", 2),
         "WISP_LLVM_TOOLCHAIN" => ("wisp:llvm", "llvm24", 4),
@@ -494,6 +496,13 @@ fn package_path(root: &Path, selected: &Selection, environment: &str) -> Result<
         return Ok(None);
     };
     let (payload, record) = verify(root, id, pin)?;
+    if environment == "WISP_CLANG_WASI_SYSROOT" {
+        let sysroot = payload.join("clang/wasi-sdk/share/wasi-sysroot");
+        return Ok(sysroot
+            .join("lib/wasm32-wasip1/libc.a")
+            .is_file()
+            .then_some(sysroot));
+    }
     if environment == "WISP_CLANG_RESOURCE_DIR" {
         let include = "clang/include";
         if record["archive"]["inventory"]
@@ -583,6 +592,7 @@ fn environment(root: &Path) -> Result<String> {
     for name in [
         "WISP_CLANG",
         "WISP_CLANG_RESOURCE_DIR",
+        "WISP_CLANG_WASI_SYSROOT",
         "WISP_GO_TOOLCHAIN",
         "WISP_LLVM",
         "WISP_LLVM_TOOLCHAIN",
