@@ -24,6 +24,7 @@ LANGUAGES = {
     "bend": (str(Path(__file__).resolve().parents[2] / "examples/build-bend/math.bend"), None),
     "goose": ("goose/examples/add.goose", None),
     "swift": ("swift/examples/add.swift", None),
+    "csharp": ("csharp/examples/add.cs", None),
     "java": ("java/examples/Math.java", "Math"),
     "kotlin": ("kotlin/examples/Math.kt", "MathKt"),
 }
@@ -69,7 +70,7 @@ def main():
         "node", "nodejs", "npm", "npx", "rustc", "cargo", "go", "cc", "c++",
         "gcc", "g++", "clang", "clang++", "ld", "wasm-ld", "wasm-tools", "wac",
         "wasm-opt", "esbuild", "componentize-py", "componentize-qjs", "zig", "nim",
-        "grain", "grainc", "bend", "bun", "goose", "swift", "swiftc", "java", "javac", "kotlin", "kotlinc",
+        "dotnet", "csc", "mcs", "mono", "ilc", "grain", "grainc", "bend", "bun", "goose", "swift", "swiftc", "java", "javac", "kotlin", "kotlinc",
     ):
         (guard_dir / name).symlink_to(guard.name)
     environment["PATH"] = str(guard_dir) + os.pathsep + environment.get("PATH", "")

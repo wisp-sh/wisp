@@ -128,6 +128,7 @@ impl Toolchain {
             Compiler::Bend => &tools.bend,
             Compiler::Goose => &tools.goose,
             Compiler::Swift => &tools.swift,
+            Compiler::Csharp => &tools.csharp,
             Compiler::Java => &tools.java,
             Compiler::Kotlin => &tools.kotlin,
             _ => bail!("compiler does not use a packaged adapter"),
@@ -212,7 +213,8 @@ impl Toolchain {
                 "WISP_LLVM_SWIFT" => matches!(compiler, Compiler::Swift),
                 "WISP_WASM_TOOLS" | "WISP_WASM_TOOLS_TOOLCHAIN" => matches!(
                     compiler,
-                    Compiler::Javascript
+                    Compiler::Csharp
+                        | Compiler::Javascript
                         | Compiler::Typescript
                         | Compiler::Python
                         | Compiler::Grain
@@ -223,7 +225,8 @@ impl Toolchain {
                 ),
                 "WISP_PREVIEW1_ADAPTER" => matches!(
                     compiler,
-                    Compiler::Nim
+                    Compiler::Csharp
+                        | Compiler::Nim
                         | Compiler::Goose
                         | Compiler::Grain
                         | Compiler::Swift
@@ -272,6 +275,34 @@ impl Toolchain {
 
     pub(super) fn notices(&self) -> Result<BTreeMap<String, String>> {
         let mut notices = BTreeMap::new();
+        if matches!(self.compiler, Compiler::Csharp) {
+            let base = self
+                .script
+                .path
+                .parent()
+                .context("C# package directory")?
+                .join("dist/licenses");
+            let mut text = String::new();
+            for name in [
+                "mono-LICENSE.txt",
+                "mono-NOTICES.txt",
+                "wasi-sdk/compiler-rt-LICENSE.TXT",
+                "wasi-sdk/libcxx-LICENSE.TXT",
+                "wasi-sdk/libcxxabi-LICENSE.TXT",
+                "wasi-sdk/wasi-libc/LICENSE",
+                "wasi-sdk/wasi-libc/LICENSE-APACHE-LLVM",
+                "wasi-sdk/wasi-libc/LICENSE-APACHE",
+                "wasi-sdk/wasi-libc/LICENSE-MIT",
+                "wasi-sdk/wasi-libc/libc-bottom-half/cloudlibc/LICENSE",
+                "wasi-sdk/wasi-libc/libc-top-half/musl/COPYRIGHT",
+                "wasi-sdk/wasi-libc/fts/musl-fts/COPYING",
+            ] {
+                text.push_str(&format!("\n\n{name}\n\n"));
+                text.push_str(&String::from_utf8(read(&base.join(name), 256 * 1024)?)?);
+                ensure!(text.len() <= 256 * 1024, "C# runtime notice size limit");
+            }
+            notices.insert("CSHARP-RUNTIME-NOTICES.txt".into(), text);
+        }
         if matches!(self.compiler, Compiler::Goose) {
             let path = self
                 .script
@@ -364,6 +395,7 @@ impl Toolchain {
                 ]);
                 wit_args(&mut argv, &wit, resolve, world, false);
             }
+            Compiler::Csharp => wit_args(&mut argv, &wit, resolve, world, false),
             Compiler::Bend => {
                 argv.extend([
                     "--project-root".into(),
@@ -444,6 +476,9 @@ impl Toolchain {
             .env("TMPDIR", scratch)
             .envs(&self.environment)
             .stdin(Stdio::null());
+        if matches!(self.compiler, Compiler::Csharp) {
+            command.env("WISP_CSHARP_CACHE", cache.join("csharp"));
+        }
         if let Some(path) = std::env::var_os("WISP_NATIVE_TOOL_ATTEMPTS") {
             command.env("WISP_NATIVE_TOOL_ATTEMPTS", path);
         }
@@ -555,6 +590,7 @@ fn source_extension(compiler: Compiler, path: &Path) -> bool {
         Compiler::Javascript | Compiler::Typescript => {
             matches!(extension, Some("js" | "mjs" | "jsx" | "ts" | "mts" | "tsx"))
         }
+        Compiler::Csharp => extension == Some("cs"),
         Compiler::Python => extension == Some("py"),
         Compiler::Grain => extension == Some("gr"),
         Compiler::Bend => extension == Some("bend"),
@@ -777,6 +813,13 @@ mod tests {
         let mut zig = unit(Compiler::Zig, "main.zig");
         zig.sources.push("other.zig".into());
         assert!(validate(Compiler::Zig, &zig).is_err());
+        let mut csharp = unit(Compiler::Csharp, "add.cs");
+        assert!(validate(Compiler::Csharp, &csharp).is_ok());
+        csharp.entry = Some("Calculator.Add".into());
+        assert!(validate(Compiler::Csharp, &csharp).is_err());
+        csharp.entry = None;
+        csharp.sources.push("helper.cs".into());
+        assert!(validate(Compiler::Csharp, &csharp).is_err());
     }
 
     #[test]
@@ -819,6 +862,7 @@ mod tests {
             (Compiler::Goose, "main.goose"),
             (Compiler::Bend, "main.bend"),
             (Compiler::Swift, "main.swift"),
+            (Compiler::Csharp, "add.cs"),
             (Compiler::Java, "Main.java"),
             (Compiler::Kotlin, "Main.kt"),
         ] {
@@ -901,6 +945,12 @@ mod tests {
                 assert!(files.contains_key("node_modules/local-package/dist/index.js"));
             }
             assert_eq!(commands[0]["status"], 0);
+            if matches!(compiler, Compiler::Csharp) {
+                let arguments = commands[0]["arguments"].as_array().unwrap();
+                assert!(arguments.iter().any(|value| value == "--wit"));
+                assert!(arguments.iter().any(|value| value == "--world"));
+                assert!(!arguments.iter().any(|value| value == "--component"));
+            }
             if matches!(compiler, Compiler::Python) {
                 let arguments = commands[0]["arguments"].as_array().unwrap();
                 let index = arguments

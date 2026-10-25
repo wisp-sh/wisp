@@ -130,6 +130,7 @@ struct Tools {
     goose: Option<PathBuf>,
     goose_frontend_host: Option<PathBuf>,
     swift: Option<PathBuf>,
+    csharp: Option<PathBuf>,
     java: Option<PathBuf>,
     kotlin: Option<PathBuf>,
 }
@@ -237,6 +238,7 @@ enum Compiler {
     Bend,
     Goose,
     Swift,
+    Csharp,
     Java,
     Kotlin,
 }
@@ -259,6 +261,7 @@ impl Compiler {
             Self::Bend => "bend",
             Self::Goose => "goose",
             Self::Swift => "swift",
+            Self::Csharp => "csharp",
             Self::Java => "java",
             Self::Kotlin => "kotlin",
         }
@@ -1488,6 +1491,7 @@ mod naming_tests {
             "goose",
             "bend",
             "swift",
+            "csharp",
             "java",
             "kotlin",
         ] {

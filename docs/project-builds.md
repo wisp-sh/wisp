@@ -3,7 +3,7 @@
 `wisp build` reads a project's `wisp.toml`, runs the selected Wasm-hosted
 compiler, and packages its Component through the schema-3 library packer and
 admission checks. It supports C/C++, Go, Rust, Zig, AssemblyScript, Nim,
-JavaScript, TypeScript, Python, Grain, Bend 2, Goose, Swift, Java and Kotlin.
+JavaScript, TypeScript, Python, Grain, Bend 2, Goose, Swift, C#, Java and Kotlin.
 
 ```sh
 wisp build path/to/project --out out/release
@@ -58,8 +58,19 @@ and version. The generated and selected contracts stay under `build/units/`.
 | `grain` | Raw scalar exports with an adjacent or authored WIT contract; heap values require ABI conversion |
 | `bend` | Bend 2 direct `U32`/`F32` function exports through the JavaScript backend; sequential execution |
 | `swift` | Scalar exports with matching Wasm export attributes; aggregates require ABI conversion |
+| `csharp` | Experimental Mono interpreter; one file with public static `int Calculator.Add(int, int)` and authored root `add(s32, s32) -> s32` WIT |
 | `java`, `kotlin` | TeaVM scalar exports; set `entry` to the main class, such as `Math` or `MathKt` |
 | `python` | Default scalar `wisp:python/api@0.1.0` adapter, or multiple typed exports through an authored WIT contract and a separately provisioned runtime template |
+
+C# requires `build.wit` and `build.world`, or an adjacent `.wit` contract.
+Select the adapter with `build.tools.csharp` or `WISP_CSHARP_TOOLCHAIN`. Roslyn
+emits IL inside Mono WASI; a fixed Mono runtime interprets that IL in the output
+Component. Native .NET and WASI SDK tools are bootstrap-only. The first profile
+supports one public static `Calculator.Add(int, int)` returning `int`, with no
+WIT imports or rich public values. NuGet restore, MSBuild, external assembly
+references, native extensions and general .NET API compatibility are outside
+this experimental profile. Scalar Components are roughly 22 MiB. See the
+[C# example](../examples/build-csharp/README.md).
 
 Goose runs its frontend and C backend inside Wasm. Its initial `scalar-v1`
 profile rejects implementations requiring dynamic data stacks, threads, queues

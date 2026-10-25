@@ -1,0 +1,9 @@
+[package]
+name = "demo:csharp-math"
+version = "0.1.0"
+
+[build]
+compiler = "csharp"
+sources = ["add.cs"]
+wit = "library.wit"
+world = "calculator"
