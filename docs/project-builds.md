@@ -59,7 +59,7 @@ and version. The generated and selected contracts stay under `build/units/`.
 | `bend` | Bend 2 direct `U32`/`F32` function exports through the JavaScript backend; sequential execution |
 | `swift` | Scalar exports with matching Wasm export attributes; aggregates require ABI conversion |
 | `java`, `kotlin` | TeaVM scalar exports; set `entry` to the main class, such as `Math` or `MathKt` |
-| `python` | Default scalar `wisp:python/api@0.1.0` adapter, or multiple typed exports through an authored WIT contract and a separately provisioned runtime template |
+| `python` | Guest CPython infers annotated functions, dataclasses, enums and typed results; authored WIT remains supported. Matching runtimes are provisioned automatically and cached. |
 
 Goose runs its frontend and C backend inside Wasm. Its initial `scalar-v1`
 profile rejects implementations requiring dynamic data stacks, threads, queues
@@ -70,22 +70,82 @@ The frontend requires a host with Wasm exception support. Set
 LLVM host lacks that feature. See the
 [Goose example](../examples/build-goose/README.md).
 
-For Python's fixed scalar profile, declare its WIT interface and use `entry` to
-select the two-argument integer callable. For multiple exports, strings,
-lists, records and typed results, provide `build.wit` and `build.world`, or an
-adjacent WIT contract. Provision its matching runtime template in buildtools first
-with `python3 python/bootstrap_contract.py --wit CONTRACT --world WORLD`.
-The Python toolchain must include that template under `dist/contracts/`.
-Normal application builds use Wasm-hosted compilation and do not run native
-componentize-py. This contract path requires an import-free synchronous world;
-resources and async APIs are unsupported. New templates bundle local Python modules. Set
-`project` to the directory containing your top-level packages, and keep one
-entrypoint in `sources`. Vendored pure Python dependencies can live under that
-source root. Package initialization, relative imports and function-local imports
-execute in guest CPython. Older templates need `bootstrap_contract.py --rebuild`
-for module support. Native extensions and package data are not bundled.
-Python functions use WIT names converted to snake_case. Records use the generated
-`wit_world.exports` dataclasses, and typed errors use `componentize_py_types.Err`.
+Python builds infer all public top-level functions defined in the file selected
+by `sources`. To expose another module, select that file as the source entrypoint.
+Imported functions are not inferred. Private functions starting with `_` are
+ignored. Every public parameter and return needs a supported annotation.
+`int`, `float`, `bool`, `str` and `bytes` map to `s64`, `f64`, `bool`, `string`
+and `list<u8>`. Lists, `Optional[T]` or `T | None`, entry-module dataclasses and
+`enum.Enum` map to their WIT equivalents. Nested options that collapse in Python, recursive types, generic functions,
+async functions, decorators on functions, variadic and keyword-only parameters
+are rejected with a diagnostic naming the public function. Inference uses
+CPython's `ast` inside Wasm and never executes application code.
+
+For typed failures, annotate `Result[T, E]` imported from
+`componentize_py_types`. Return `T` directly or raise `Err(E)` from the same
+module. An ordinary Python exception traps. Plain dataclasses and enums are
+converted to and from generated binding values by the guest adapter. Authored
+contracts remain available through `build.wit` and `build.world`, or an adjacent
+WIT file. They can specify integer widths and contract types beyond inference.
+The contract path requires an import-free synchronous world; resources and async
+APIs are unsupported.
+
+A missing runtime template is provisioned automatically through the installed
+Python toolchain, serialized across concurrent builds, and cached under
+`<build-cache>/python/<provisioner-hash>/contracts/<contract-hash>/`. Provisioning
+uses bundled, version-pinned and SHA-256-checked native componentize-py, Binaryen,
+WAC and wasm-tools. It receives only WIT, never application source. It is a
+compiler-package bootstrap step, even when triggered by `wisp build`. Application
+source parsing, compilation, initialization, packaging and final validation run
+inside Wasm. The first contract build needs bootstrap-sized memory and disk;
+function-body edits reuse the snapshot. Install a newly bootstrapped Python
+package to get inference and offline provisioning assets. Legacy packages cannot
+supply them automatically.
+
+Set `project` to the directory containing your top-level Python packages and
+keep one entrypoint in `sources`. Relative imports, namespace packages and
+function-local imports execute in guest CPython. The aggregate source bundle,
+including dependencies and its loader, is limited to 1 MiB. Components retain
+the 64 MiB admission limit. Only the template's preinitialized standard-library
+modules are available. Manual contract provisioning remains useful for custom
+`--preload-module` sets.
+
+Pure Python third-party dependencies are selected offline from exact stable
+numeric pins in `[project].dependencies` in `pyproject.toml` and/or
+`requirements.txt`. A `python-deps.lock.json` beside them must pin every selected
+package, including transitive dependencies, to a local wheel or vendor tree:
+
+```json
+{
+  "schema": 1,
+  "packages": [
+    {
+      "name": "example-package",
+      "version": "1.2.3",
+      "path": "wheels/example_package-1.2.3-py3-none-any.whl",
+      "sha256": "<64 lowercase hex digits>"
+    }
+  ]
+}
+```
+
+For that entry, use `example-package==1.2.3` in either project dependency list.
+`requirements.txt` may also attach `--hash=sha256:...`; it must match the lock.
+Wheel metadata must identify the same name/version, declare purelib and use
+`py*-none-any` tags. Transitive metadata constraints are checked against the lock;
+missing or incompatible pins fail. Stable numeric version comparisons, wildcard
+`==`/`!=` and `~=` are supported. Markers, extras, prereleases, URLs, editable
+installs, source distributions and dynamic dependency declarations are rejected.
+No pip, package setup code or network resolver runs during a build.
+
+For vendored source, `path` selects a directory, `files` maps each relative `.py`
+path to its SHA-256, and `sha256` hashes the UTF-8 JSON encoding of that map with
+sorted keys and separators `,` and `:` without whitespace. Optional `requires`
+lists transitive metadata requirements. Every file must appear in the inventory.
+Native extensions, package data, relocation directories and symlinks are rejected.
+See [the Python example](../examples/build-python/README.md) and
+[the WASI extension design note](python-native-extensions.md).
+
 `entry` applies only to the default scalar adapter. JavaScript
 has no Node builtins or browser DOM. The additional scalar adapters do not
 automatically convert language-managed strings, collections or objects.

@@ -110,6 +110,32 @@ fn executable(
 }
 
 impl Toolchain {
+    pub(super) fn infer_python(&self, source: &Path) -> Result<String> {
+        let script = self.script.path.with_file_name("infer.py");
+        let result = Command::new(&self.python.path)
+            .arg(&script)
+            .arg(source)
+            .arg("--declarations")
+            .env_clear()
+            .env("PATH", std::env::var_os("PATH").unwrap_or_default())
+            .env("PYTHONDONTWRITEBYTECODE", "1")
+            .envs(&self.environment)
+            .stdin(Stdio::null())
+            .output()
+            .context("running packaged guest Python contract inference")?;
+        ensure!(
+            result.status.success(),
+            "Python contract inference failed: {}{}",
+            String::from_utf8_lossy(&result.stdout),
+            String::from_utf8_lossy(&result.stderr)
+        );
+        ensure!(
+            result.stdout.len() <= MAX_SOURCE as usize,
+            "Python inferred contract exceeds size limit"
+        );
+        Ok(String::from_utf8(result.stdout)?)
+    }
+
     pub(super) fn load(root: &Path, tools: &Tools, compiler: Compiler) -> Result<Self> {
         let configured = match compiler {
             Compiler::Zig => &tools.zig,
@@ -408,6 +434,10 @@ impl Toolchain {
             ]),
             Compiler::Python => {
                 if !legacy_python_contract(resolve, world) {
+                    argv.extend([
+                        "--cache-dir".into(),
+                        cache.join("python").to_string_lossy().into_owned(),
+                    ]);
                     ensure!(
                         unit.entry.is_none(),
                         "entry is only supported by the legacy scalar Python adapter"
@@ -903,6 +933,14 @@ mod tests {
             assert_eq!(commands[0]["status"], 0);
             if matches!(compiler, Compiler::Python) {
                 let arguments = commands[0]["arguments"].as_array().unwrap();
+                let cache_index = arguments
+                    .iter()
+                    .position(|value| value == "--cache-dir")
+                    .unwrap();
+                assert_eq!(
+                    Path::new(arguments[cache_index + 1].as_str().unwrap()),
+                    cache.join("python")
+                );
                 let index = arguments
                     .iter()
                     .position(|value| value == "--package-root")
@@ -913,6 +951,51 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn python_inference_calls_the_packaged_guest_driver_and_reports_errors() {
+        let temp = tempfile::tempdir().unwrap();
+        let source = temp.path().join("api.py");
+        write(&source, "raise RuntimeError('must not run on the host')").unwrap();
+        let script = temp.path().join("infer.py");
+        write(&script, "import sys\nassert sys.argv[1].endswith('api.py')\nassert sys.argv[2] == '--declarations'\nprint('ready: func() -> bool;')\n").unwrap();
+        let toolchain = Toolchain {
+            compiler: Compiler::Python,
+            script: Tool {
+                path: temp.path().join("compile.py"),
+                sha256: String::new(),
+            },
+            python: executable(
+                Path::new("/"),
+                &None,
+                "WISP_ADAPTER_TEST_PYTHON_HOST",
+                "python3",
+            )
+            .unwrap(),
+            runtime: crate::compiler_hosts::ExecutionHost {
+                path: "/unused".into(),
+                sha256: String::new(),
+                backend: crate::compiler_hosts::Backend::WasmtimeCli,
+            },
+            environment: BTreeMap::new(),
+        };
+        let wit = toolchain.infer_python(&source).unwrap();
+        Resolve::default()
+            .push_str(
+                "inferred.wit",
+                &format!(
+                    "package test:python; interface api {{ {wit} }} world library {{ export api; }}"
+                ),
+            )
+            .unwrap();
+        write(
+            &script,
+            "raise SystemExit('function bad: unsupported Python type dict[str, int]')",
+        )
+        .unwrap();
+        let error = toolchain.infer_python(&source).unwrap_err().to_string();
+        assert!(error.contains("function bad: unsupported Python type dict[str, int]"));
     }
 
     #[cfg(unix)]

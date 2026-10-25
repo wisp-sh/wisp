@@ -374,7 +374,23 @@ pub(super) fn generate(
             .compiler
             .context("inferred source unit requires compiler")?;
         if compiler.is_adapter() {
-            let (body, hashes) = adapters::contract(root, unit, compiler, resolve)?;
+            let (body, hashes) = if matches!(compiler, Compiler::Python) {
+                let (body, hashes, inferred) =
+                    adapters::python_contract(root, unit, &config.build.tools, resolve)?;
+                if inferred {
+                    let interface = if source_units.len() == 1 {
+                        "api".into()
+                    } else {
+                        format!("{}-api", wire_name(name)?)
+                    };
+                    wit.push_str(&format!("interface %{interface} {{\n{body}\n}}\n"));
+                    (format!("export %{interface};"), hashes)
+                } else {
+                    (body, hashes)
+                }
+            } else {
+                adapters::contract(root, unit, compiler, resolve)?
+            };
             unit.world = wire_name(name)?;
             wit.push_str(&format!("world %{} {{\n{body}\n}}\n", unit.world));
             sources.insert(name.clone(), hashes);

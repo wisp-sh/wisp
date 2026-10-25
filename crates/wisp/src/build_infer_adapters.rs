@@ -2,6 +2,35 @@
 use super::*;
 use regex::Regex;
 
+pub(super) fn python_contract(
+    root: &Path,
+    unit: &Unit,
+    tools: &Tools,
+    resolve: &mut Resolve,
+) -> Result<(String, BTreeMap<String, String>, bool)> {
+    crate::build::adapters::validate(Compiler::Python, unit)?;
+    let source = input(root, &unit.sources[0])?;
+    // Preserve the explicit legacy entry selection and adjacent authored WIT.
+    if unit.entry.is_some() || source.with_extension("wit").is_file() {
+        let (body, hashes) = contract(root, unit, Compiler::Python, resolve)?;
+        return Ok((body, hashes, false));
+    }
+    let bytes = read(&source, MAX_SOURCE)?;
+    let toolchain = crate::build::adapters::Toolchain::load(root, tools, Compiler::Python)?;
+    let declarations = toolchain.infer_python(&source)?;
+    Ok((
+        declarations,
+        BTreeMap::from([(
+            source
+                .strip_prefix(root)?
+                .to_string_lossy()
+                .replace('\\', "/"),
+            digest(&bytes),
+        )]),
+        true,
+    ))
+}
+
 fn package_item(resolve: &Resolve, package: PackageId, item: &str) -> String {
     let name = &resolve.packages[package].name;
     format!(
