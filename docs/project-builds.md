@@ -59,7 +59,7 @@ and version. The generated and selected contracts stay under `build/units/`.
 | `bend` | Bend 2 direct `U32`/`F32` function exports through the JavaScript backend; sequential execution |
 | `swift` | Scalar exports with matching Wasm export attributes; aggregates require ABI conversion |
 | `java`, `kotlin` | TeaVM scalar exports; set `entry` to the main class, such as `Math` or `MathKt` |
-| `python` | The packaged `wisp:python/api@0.1.0` interface, including `add(s32, s32) -> s32`; `entry` chooses the annotated Python callable |
+| `python` | Default scalar `wisp:python/api@0.1.0` adapter, or multiple typed exports through an authored WIT contract and a separately provisioned runtime template |
 
 Goose runs its frontend and C backend inside Wasm. Its initial `scalar-v1`
 profile rejects implementations requiring dynamic data stacks, threads, queues
@@ -70,9 +70,23 @@ The frontend requires a host with Wasm exception support. Set
 LLVM host lacks that feature. See the
 [Goose example](../examples/build-goose/README.md).
 
-Python's installed runtime currently has a fixed public interface. Selecting a
-different callable does not change that interface. Multiple arbitrary Python
-exports and general WIT bindings require a newer runtime adapter. JavaScript
+For Python's fixed scalar profile, declare its WIT interface and use `entry` to
+select the two-argument integer callable. For multiple exports, strings,
+lists, records and typed results, provide `build.wit` and `build.world`, or an
+adjacent WIT contract. Provision its matching runtime template in buildtools first
+with `python3 python/bootstrap_contract.py --wit CONTRACT --world WORLD`.
+The Python toolchain must include that template under `dist/contracts/`.
+Normal application builds use Wasm-hosted compilation and do not run native
+componentize-py. This contract path requires an import-free synchronous world;
+resources and async APIs are unsupported. New templates bundle local Python modules. Set
+`project` to the directory containing your top-level packages, and keep one
+entrypoint in `sources`. Vendored pure Python dependencies can live under that
+source root. Package initialization, relative imports and function-local imports
+execute in guest CPython. Older templates need `bootstrap_contract.py --rebuild`
+for module support. Native extensions and package data are not bundled.
+Python functions use WIT names converted to snake_case. Records use the generated
+`wit_world.exports` dataclasses, and typed errors use `componentize_py_types.Err`.
+`entry` applies only to the default scalar adapter. JavaScript
 has no Node builtins or browser DOM. The additional scalar adapters do not
 automatically convert language-managed strings, collections or objects.
 

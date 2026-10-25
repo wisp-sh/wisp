@@ -93,6 +93,7 @@ Omit `--go-module` if you don't need a Go module.
 | --- | --- |
 | [build-rust](examples/build-rust/README.md) | Build a Rust library |
 | [build-go](examples/build-go) | Build a Go library |
+| [build-python](examples/build-python/README.md) | Build a Python library with strings, lists, records and typed errors |
 | [build-cpp](examples/build-cpp) | Build a C++ library |
 | [build-mixed](examples/build-mixed/README.md) | Build C++ and Go together |
 | [build-bend](examples/build-bend/README.md) | Build a Bend 2 program |

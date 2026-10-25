@@ -407,6 +407,19 @@ impl Toolchain {
                 .into(),
             ]),
             Compiler::Python => {
+                if !legacy_python_contract(resolve, world) {
+                    ensure!(
+                        unit.entry.is_none(),
+                        "entry is only supported by the legacy scalar Python adapter"
+                    );
+                    wit_args(&mut argv, &wit, resolve, world, false);
+                    if project.is_some() {
+                        argv.extend([
+                            "--package-root".into(),
+                            module_root.to_string_lossy().into_owned(),
+                        ]);
+                    }
+                }
                 if let Some(entry) = &unit.entry {
                     argv.extend(["--entry".into(), entry.clone()]);
                 }
@@ -474,9 +487,10 @@ impl Toolchain {
             bytes = encoder.encode().with_context(|| format!("assembling {} Component; source exports must implement the selected WIT canonical ABI", self.compiler.name()))?;
         }
         validate_component(&bytes, resolve, world).with_context(|| {
-            if matches!(self.compiler, Compiler::Python) {
-                "Python's packaged adapter exports wisp:python/api@0.1.0 with add(s32,s32), validate and runtime-info; select that WIT interface".to_owned()
-            } else { format!("{} adapter output differs from selected WIT", self.compiler.name()) }
+            format!(
+                "{} adapter output differs from selected WIT",
+                self.compiler.name()
+            )
         })?;
         let receipt = PathBuf::from(format!("{}.build.json", output.display()));
         if receipt.is_file() {
@@ -486,6 +500,21 @@ impl Toolchain {
         }
         Ok(bytes)
     }
+}
+
+fn legacy_python_contract(resolve: &Resolve, world: WorldId) -> bool {
+    let exports = &resolve.worlds[world].exports;
+    if exports.len() != 1 {
+        return false;
+    }
+    let Some(WorldItem::Interface { id, .. }) = exports.values().next() else {
+        return false;
+    };
+    let interface = &resolve.interfaces[*id];
+    interface.name.as_deref() == Some("api")
+        && interface.package.is_some_and(|package| {
+            resolve.packages[package].name.to_string() == "wisp:python@0.1.0"
+        })
 }
 
 fn wit_args(
@@ -684,6 +713,17 @@ mod tests {
     }
 
     #[test]
+    fn distinguishes_legacy_python_api_from_authored_contracts() {
+        let mut resolve = Resolve::default();
+        let package = resolve.push_str("legacy.wit", "package wisp:python@0.1.0; interface api { add: func(a: s32, b: s32) -> s32; } world legacy { export api; }").unwrap();
+        let world = resolve.select_world(&[package], Some("legacy")).unwrap();
+        assert!(legacy_python_contract(&resolve, world));
+        let package = resolve.push_str("library.wit", "package demo:python@0.1.0; world library { export greet: func(name: string) -> string; }").unwrap();
+        let world = resolve.select_world(&[package], Some("library")).unwrap();
+        assert!(!legacy_python_contract(&resolve, world));
+    }
+
+    #[test]
     fn validates_adapter_entrypoints_and_options() {
         assert!(validate(Compiler::Java, &unit(Compiler::Java, "Math.java")).is_ok());
         let mut java = unit(Compiler::Java, "Math.java");
@@ -797,10 +837,14 @@ mod tests {
             let mut files = BTreeMap::new();
             let mut total = 0;
             let mut commands = Vec::new();
+            let mut source_unit = unit(compiler, filename);
+            if matches!(compiler, Compiler::Python) {
+                source_unit.project = Some(".".into());
+            }
             let bytes = toolchain
                 .compile(
                     &root,
-                    &unit(compiler, filename),
+                    &source_unit,
                     &source,
                     &scratch,
                     &cache,
@@ -820,6 +864,17 @@ mod tests {
                 assert!(files.contains_key("node_modules/local-package/dist/index.js"));
             }
             assert_eq!(commands[0]["status"], 0);
+            if matches!(compiler, Compiler::Python) {
+                let arguments = commands[0]["arguments"].as_array().unwrap();
+                let index = arguments
+                    .iter()
+                    .position(|value| value == "--package-root")
+                    .unwrap();
+                assert_eq!(
+                    Path::new(arguments[index + 1].as_str().unwrap()),
+                    source.as_path()
+                );
+            }
         }
     }
 

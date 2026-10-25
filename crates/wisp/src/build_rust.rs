@@ -802,7 +802,7 @@ mod tests {
             .map(PathBuf::from)
             .unwrap_or_else(|| directory.path().join("cache"));
         let bytes = compile(&toolchain, &source, &directory.path().join("scratch"),
-            "extern crate application; #[no_mangle] pub extern \"C\" fn answer() -> u32 { application::answer() }\n",
+            Some("extern crate application; #[no_mangle] pub extern \"C\" fn answer() -> u32 { application::answer() }\n"),
             &cache, &mut commands).unwrap();
         assert!(bytes.starts_with(b"\0asm\x01\0\0\0"));
         assert!(

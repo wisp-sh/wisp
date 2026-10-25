@@ -748,12 +748,12 @@ func main() {}
         let project = tempfile::tempdir().unwrap();
         fs::write(
             project.path().join("main.go"),
-            "package main\nfunc Bad(value *string) string { return *value }\nfunc main() {}\n",
+            "package main\nfunc Bad(value map[string]string) string { return value[\"key\"] }\nfunc main() {}\n",
         )
         .unwrap();
         assert!(
             format!("{:#}", go_functions(project.path()).unwrap_err())
-                .contains("unsupported public Go type *string")
+                .contains("unsupported public Go type map[string]string")
         );
         let source = "unsigned *bad(unsigned *p) { return p; }";
         let tree = parse(source, false).unwrap();
