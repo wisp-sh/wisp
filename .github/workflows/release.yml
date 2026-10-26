@@ -6,6 +6,14 @@ on:
         description: New immutable release tag, for example cli-2026.10.26
         required: true
         type: string
+      host_kit_manifest_url:
+        description: Optional pinned existing CLI kit from which to reuse compatible execution hosts
+        type: string
+        default: ''
+      host_kit_manifest_sha256:
+        description: SHA-256 of the exact existing kit manifest; setup-hosts checks the current embedded host recipe
+        type: string
+        default: ''
 permissions:
   contents: read
 concurrency:
@@ -22,6 +30,8 @@ jobs:
       CARGO_BUILD_JOBS: '1'
       CARGO_INCREMENTAL: '0'
       RUSTUP_TOOLCHAIN: 1.98.1
+      HOST_KIT_URL: ${{ inputs.host_kit_manifest_url }}
+      HOST_KIT_SHA256: ${{ inputs.host_kit_manifest_sha256 }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -52,11 +62,15 @@ jobs:
         run: cargo build --locked --release -p wisp -p wisp-worker -j 1
       - name: Prepare native tools and prebuilt execution hosts
         run: |
+          extra=()
+          if [[ -n "$HOST_KIT_URL" || -n "$HOST_KIT_SHA256" ]]; then
+            extra=(--host-kit-manifest-url "$HOST_KIT_URL" --host-kit-manifest-sha256 "$HOST_KIT_SHA256")
+          fi
           python3 tools/release/prepare.py --binary-dir target/release \
             --out "$RUNNER_TEMP/native-kit" --scratch "$RUNNER_TEMP/native-scratch" \
             --archive "$RUNNER_TEMP/wisp-linux-x86_64.tar.gz" \
             --manifest "$RUNNER_TEMP/wisp-linux-x86_64.json" \
-            --url "https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG/wisp-linux-x86_64.tar.gz"
+            --url "https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG/wisp-linux-x86_64.tar.gz" "${extra[@]}"
       - name: Check host relocation
         run: |
           mv "$RUNNER_TEMP/native-kit" "$RUNNER_TEMP/relocated-kit"

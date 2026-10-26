@@ -24,3 +24,11 @@ worker. Scratch space belongs on disk under the runner temporary directory.
 Do not run this release build on a shared host without first checking its
 memory, swap, cgroup limits and disk budget. No release assets are replaced when
 a tag already exists.
+
+For a CLI-only change, `host_kit_manifest_url` and
+`host_kit_manifest_sha256` can reuse execution hosts from an existing verified
+kit. Only the host directory is copied. The new CLI's `setup-hosts` command
+checks its embedded source recipe, patch, binary receipt and capability tests
+before reuse. CLI and worker binaries are rebuilt, and native package tools and
+caches are prepared from the current source pins. Omit these inputs when the
+execution host recipe changes.

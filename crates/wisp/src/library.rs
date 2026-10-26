@@ -1011,6 +1011,53 @@ wit-bindgen = {{ version = "=0.61.1"{guest_async_features} }}
 #[path = "library_cargo_seed_tests.rs"]
 mod cargo_seed_tests;
 
+fn packaged_cargo_manifest(cargo_name: &str, manifest: &str) -> Result<toml::Value> {
+    let mut normalized: toml::Value = toml::from_str(manifest)?;
+    normalized
+        .as_table_mut()
+        .context("manifest table")?
+        .remove("workspace");
+    for key in [
+        "build",
+        "autolib",
+        "autobins",
+        "autoexamples",
+        "autotests",
+        "autobenches",
+        "readme",
+    ] {
+        normalized["package"]
+            .as_table_mut()
+            .context("package table")?
+            .insert(key.into(), false.into());
+    }
+    normalized.as_table_mut().unwrap().insert(
+        "lib".into(),
+        toml::Value::try_from(json!({"name":cargo_name.replace('-', "_"),"path":"src/lib.rs"}))?,
+    );
+    // Cargo expands dependency version strings to tables in the packaged
+    // descriptor. Keep comparing the exact generated requirements afterwards.
+    for (_, target) in normalized["target"]
+        .as_table_mut()
+        .context("target tables")?
+        .iter_mut()
+    {
+        for (_, dependency) in target["dependencies"]
+            .as_table_mut()
+            .context("target dependencies")?
+            .iter_mut()
+        {
+            if let Some(version) = dependency.as_str() {
+                *dependency = toml::Value::Table(toml::Table::from_iter([(
+                    "version".into(),
+                    version.into(),
+                )]));
+            }
+        }
+    }
+    Ok(normalized)
+}
+
 fn node_manifest(
     name: &str,
     version: &str,
@@ -1552,33 +1599,17 @@ pub fn validate(dir: &Path) -> Result<Value> {
         rust.keys().cloned().collect::<BTreeSet<_>>() == expected_names,
         "unexpected Rust package files"
     );
-    let mut normalized: toml::Value = toml::from_str(&cargo_manifest(
+    let normalized = packaged_cargo_manifest(
         &cargo_name,
-        version,
-        &metadata,
-        wasi,
-        asynchronous,
-        worker::supports(&resolve, world),
-    )?)?;
-    normalized.as_table_mut().unwrap().remove("workspace");
-    for key in [
-        "build",
-        "autolib",
-        "autobins",
-        "autoexamples",
-        "autotests",
-        "autobenches",
-        "readme",
-    ] {
-        normalized["package"]
-            .as_table_mut()
-            .context("package table")?
-            .insert(key.into(), false.into());
-    }
-    normalized.as_table_mut().unwrap().insert(
-        "lib".into(),
-        toml::Value::try_from(json!({"name":cargo_name.replace('-', "_"),"path":"src/lib.rs"}))?,
-    );
+        &cargo_manifest(
+            &cargo_name,
+            version,
+            &metadata,
+            wasi,
+            asynchronous,
+            worker::supports(&resolve, world),
+        )?,
+    )?;
     let actual: toml::Value =
         toml::from_str(std::str::from_utf8(&rust[&format!("{root}Cargo.toml")])?)?;
     ensure!(

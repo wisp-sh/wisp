@@ -14,6 +14,7 @@ from pathlib import Path
 import platform
 import shutil
 import subprocess
+import sys
 import tarfile
 import tempfile
 import urllib.request
@@ -21,6 +22,9 @@ import urllib.request
 ROOT = Path(__file__).resolve().parents[2]
 RUST = "1.98.1"
 MAX_ASSET = 2 * 1024**3
+
+sys.path.insert(0, str(ROOT / 'scripts/ci'))
+from runtime import download as download_release, extract_runtime, strict_json, validate_catalog
 
 
 def digest(path):
@@ -47,7 +51,20 @@ def download(spec, path):
         raise ValueError('native tool checksum mismatch')
 
 
-def prepare(out, scratch, binary_dir):
+def restore_hosts(out, scratch, url, sha256):
+    """Restore only execution hosts; setup-hosts verifies the current recipe."""
+    manifest = download_release(url, sha256, scratch / 'host-kit.json', limit=65536)
+    spec = validate_catalog(strict_json(manifest.read_bytes()))['runtime']
+    archive = download_release(spec['url'], spec['sha256'], scratch / 'host-kit.tar.gz', size=spec['size'])
+    stage = scratch / 'host-kit'
+    stage.mkdir()
+    extract_runtime(archive, stage)
+    shutil.copytree(stage / 'toolchains/hosts', out / 'toolchains/hosts')
+    shutil.rmtree(stage)
+    archive.unlink()
+
+
+def prepare(out, scratch, binary_dir, *, host_kit_url=None, host_kit_sha256=None):
     if (platform.system(), platform.machine()) != ('Linux', 'x86_64'):
         raise ValueError('release kits require Linux x86_64')
     out.mkdir(parents=True, exist_ok=False)
@@ -57,6 +74,10 @@ def prepare(out, scratch, binary_dir):
         shutil.copy2(binary_dir / name, out / 'bin' / name)
     shutil.copytree(ROOT / 'examples/build-c', out / 'share/wisp/smoke-c')
     shutil.copyfile(ROOT / 'LICENSE', out / 'share/wisp/LICENSE')
+    if host_kit_url or host_kit_sha256:
+        if not host_kit_url or not host_kit_sha256:
+            raise ValueError('host kit manifest URL and SHA-256 must be supplied together')
+        restore_hosts(out, scratch, host_kit_url, host_kit_sha256)
     cli = out / 'bin/wisp'
     run([cli, 'toolchain', 'setup-hosts', '--prefix', out / 'toolchains',
          '--cache', scratch / 'hosts', '--host', 'all', '--jobs', '1'])
@@ -85,7 +106,8 @@ def prepare(out, scratch, binary_dir):
     js.mkdir()
     for name in ('package.json', 'package-lock.json'):
         shutil.copyfile(ROOT / 'crates/wisp/assets/setup-tooling' / name, js / name)
-    run([out / 'node/bin/npm', 'ci', '--prefix', js, '--ignore-scripts', '--no-audit', '--no-fund'], env)
+    run([out / 'node/bin/npm', 'ci', '--prefix', js, '--cache', out / 'npm-cache', '--ignore-scripts', '--no-audit', '--no-fund'], env)
+    shutil.rmtree(out / 'npm-cache/_logs', ignore_errors=True)
     run(['python3', ROOT / 'tools/upstream-bindings/setup.py', '--out', out / 'generators'], env)
     # The seed covers dependencies cargo package resolves for generated libraries.
     seed = scratch / 'seed'
@@ -116,6 +138,7 @@ wasmtime-wasi-http={version="=50.0.0",default-features=false,features=["p2","def
     exports = {'WISP_TOOLCHAIN_HOME': 'toolchains', 'WISP_WORKER': 'bin/wisp-worker',
                'WISP_NODE': 'node/bin/node', 'WISP_GO': 'go/bin/go',
                'WISP_JCO': 'js/node_modules/.bin/jco', 'WISP_WIT_BINDGEN': 'generators/wit-bindgen',
+               'WISP_NPM_CACHE': 'npm-cache',
                'WISP_WIT_BINDGEN_WORKDIR': 'binding-work', 'CARGO_HOME': 'cargo-home',
                'CARGO_TARGET_DIR': 'cargo-target', 'GOCACHE': 'go-cache', 'GOMODCACHE': 'go-mod-cache',
                'WISP_GO_CARGO_TARGET_DIR': 'go-cargo-target'}
@@ -168,8 +191,11 @@ def main():
     parser.add_argument('--archive', type=Path, required=True)
     parser.add_argument('--manifest', type=Path, required=True)
     parser.add_argument('--url', required=True)
+    parser.add_argument('--host-kit-manifest-url')
+    parser.add_argument('--host-kit-manifest-sha256')
     args = parser.parse_args()
-    prepare(args.out.resolve(), args.scratch.resolve(), args.binary_dir.resolve())
+    prepare(args.out.resolve(), args.scratch.resolve(), args.binary_dir.resolve(),
+            host_kit_url=args.host_kit_manifest_url, host_kit_sha256=args.host_kit_manifest_sha256)
     args.manifest.write_text(json.dumps(package(args.out, args.archive, args.url), indent=2) + '\n')
 
 
