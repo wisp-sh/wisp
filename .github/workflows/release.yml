@@ -1,0 +1,74 @@
+name: Release Linux CLI kit
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: New immutable release tag, for example cli-2026.10.26
+        required: true
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: cli-release
+  cancel-in-progress: false
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    permissions:
+      contents: write
+    env:
+      TAG: ${{ inputs.tag }}
+      CARGO_BUILD_JOBS: '1'
+      CARGO_INCREMENTAL: '0'
+      RUSTUP_TOOLCHAIN: 1.98.1
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Recover disk on the disposable hosted runner
+        if: runner.environment == 'github-hosted'
+        run: sudo rm -rf -- /usr/share/dotnet /usr/local/lib/android /usr/local/.ghcup /opt/hostedtoolcache/CodeQL
+      - name: Check release tag and builder capacity
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$TAG" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$ ]]
+          free -h
+          df -h .
+          df -i .
+          findmnt -T "$RUNNER_TEMP"
+          python3 - <<'PY'
+          import shutil
+          if shutil.disk_usage('.').free < 30 * 1024**3:
+              raise SystemExit('CLI and host builds need at least 30 GiB free disk on this disposable runner')
+          PY
+          echo "TMPDIR=$RUNNER_TEMP" >> "$GITHUB_ENV"
+      - name: Install pinned Rust toolchains
+        run: |
+          rustup toolchain install 1.98.1 --profile minimal --target wasm32-unknown-unknown
+          rustup toolchain install 1.99.0 --profile minimal
+      - name: Build CLI and worker from the locked graph
+        run: cargo build --locked --release -p wisp -p wisp-worker -j 1
+      - name: Prepare native tools and prebuilt execution hosts
+        run: |
+          python3 tools/release/prepare.py --binary-dir target/release \
+            --out "$RUNNER_TEMP/native-kit" --scratch "$RUNNER_TEMP/native-scratch" \
+            --archive "$RUNNER_TEMP/wisp-linux-x86_64.tar.gz" \
+            --manifest "$RUNNER_TEMP/wisp-linux-x86_64.json" \
+            --url "https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG/wisp-linux-x86_64.tar.gz"
+      - name: Check host relocation
+        run: |
+          mv "$RUNNER_TEMP/native-kit" "$RUNNER_TEMP/relocated-kit"
+          "$RUNNER_TEMP/relocated-kit/bin/wisp" toolchain hosts --prefix "$RUNNER_TEMP/relocated-kit/toolchains" > "$RUNNER_TEMP/hosts.json"
+          python3 -c 'import json,sys; assert json.load(open(sys.argv[1]))["available"] is True' "$RUNNER_TEMP/hosts.json"
+      - name: Publish the CLI kit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cd "$RUNNER_TEMP"
+          sha256sum wisp-linux-x86_64.json wisp-linux-x86_64.tar.gz > SHA256SUMS
+          cat SHA256SUMS >> "$GITHUB_STEP_SUMMARY"
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            --title "$TAG" --notes-file SHA256SUMS \
+            wisp-linux-x86_64.json wisp-linux-x86_64.tar.gz SHA256SUMS

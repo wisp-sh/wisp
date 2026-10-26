@@ -22,6 +22,8 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Check native release packaging
+        run: python3 -m unittest discover -s tools/release -p 'test_*.py'
       - name: Reject modified compiler inputs and mutable CLI snapshots
         run: python3 -m unittest discover -s tests/source-build -p 'test_*.py'
   source-build:

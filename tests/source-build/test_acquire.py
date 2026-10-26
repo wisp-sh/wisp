@@ -32,6 +32,16 @@ class AcquisitionTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "five"):
             self.read()
 
+    def test_buildtools_release_projects_to_the_pinned_five_bundle_contract(self):
+        value = copy.deepcopy(self.value)
+        value.update(schema=2, repository="wisp-sh/wisp-buildtools", tag="toolchains-1", commit="a" * 40)
+        for entry in value["bundles"]:
+            entry.update(platform="wasm32-wasi", requires=[], upstreamVersion="upstream")
+        self.assertEqual(self.read(value), self.value)
+        value["bundles"][0]["platform"] = "linux-x86_64"
+        with self.assertRaisesRegex(ValueError, "Wasm"):
+            self.read(value)
+
     def test_duplicate_and_unknown_tools_are_rejected(self):
         self.value["bundles"][0]["tool"] = self.value["bundles"][1]["tool"]
         with self.assertRaisesRegex(ValueError, "duplicate"):
