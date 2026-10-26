@@ -129,13 +129,30 @@ wasmtime-wasi-http={version="=50.0.0",default-features=false,features=["p2","def
 
 
 def package(prepared, archive, url):
-    # Flatten internal links; never follow a link out of the prepared tree.
+    # npm launchers must retain their canonical package paths. Flattening .bin
+    # links changes both relative imports and the generator's entry-point proof.
     for path in prepared.rglob('*'):
-        if path.is_symlink() and not path.resolve().is_relative_to(prepared.resolve()):
-            raise ValueError('release link escapes prepared tree')
-    with tarfile.open(archive, 'w:gz', dereference=True) as output:
-        for path in sorted(prepared.iterdir()):
-            output.add(path, arcname=path.name)
+        if path.is_symlink():
+            if not path.resolve().is_relative_to(prepared.resolve()):
+                raise ValueError('release link escapes prepared tree')
+            if not path.is_file():
+                raise ValueError('release links must resolve to regular files')
+        elif not (path.is_dir() or path.is_file()):
+            raise ValueError('unsupported release file type')
+    with tarfile.open(archive, 'w:gz', dereference=False) as output:
+        for path in sorted(prepared.rglob('*')):
+            entry = output.gettarinfo(path, arcname=path.relative_to(prepared).as_posix())
+            if path.is_symlink():
+                entry.linkname = os.path.relpath(path.resolve(), path.parent.resolve())
+                output.addfile(entry)
+            elif path.is_dir():
+                output.addfile(entry)
+            else:
+                # Write every regular file as data, including hard-linked cache
+                # inputs. The runtime extractor deliberately rejects hard links.
+                entry.type, entry.linkname, entry.size = tarfile.REGTYPE, '', path.stat().st_size
+                with path.open('rb') as source:
+                    output.addfile(entry, source)
     if archive.stat().st_size > MAX_ASSET:
         raise ValueError('native kit exceeds the 2 GiB release asset limit')
     return {'schema': 1, 'platform': 'linux-x86_64', 'cli': {'path': 'bin/wisp'},
