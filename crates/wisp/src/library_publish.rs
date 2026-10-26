@@ -916,18 +916,37 @@ fn save_state(path: &Path, state: &Value) -> Result<()> {
     Ok(())
 }
 
+struct PublicationLock(fs::File);
+
+impl PublicationLock {
+    fn acquire(path: &Path, message: &'static str) -> Result<Self> {
+        let file = fs::OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .read(true)
+            .write(true)
+            .open(path)?;
+        file.try_lock().context(message)?;
+        Ok(Self(file))
+    }
+}
+
+impl Drop for PublicationLock {
+    fn drop(&mut self) {
+        // A concurrent fork can temporarily inherit the file description before
+        // exec closes it. Explicitly release the lock even while that copy lives.
+        let _ = self.0.unlock();
+    }
+}
+
 /// A Go proxy serves immutable module files. It has no registry upload endpoint.
 fn go_publish(config: &GoConfig, record: &Value, files: &Files, completed: bool) -> Result<Value> {
     let root = Path::new(&config.directory);
     fs::create_dir_all(root)?;
-    let lock = fs::OpenOptions::new()
-        .create(true)
-        .truncate(false)
-        .read(true)
-        .write(true)
-        .open(root.join(".wisp-publish.lock"))?;
-    lock.try_lock()
-        .context("another publisher holds this Go proxy lock")?;
+    let _lock = PublicationLock::acquire(
+        &root.join(".wisp-publish.lock"),
+        "another publisher holds this Go proxy lock",
+    )?;
     let version = format!("v{}", field(record, "version")?);
     let directory = root.join(&config.module).join("@v");
     fs::create_dir_all(&directory)?;
@@ -1009,14 +1028,7 @@ pub fn publish(plan_path: &Path, state_path: &Path) -> Result<Value> {
         lock_path != plan_path && lock_path != state_path && state_path != plan_path,
         "publication plan/state paths overlap"
     );
-    let lock = fs::OpenOptions::new()
-        .create(true)
-        .truncate(false)
-        .read(true)
-        .write(true)
-        .open(lock_path)?;
-    lock.try_lock()
-        .context("another publisher holds this state lock")?;
+    let _lock = PublicationLock::acquire(&lock_path, "another publisher holds this state lock")?;
     let mut state = if state_path.try_exists()? {
         crate::release::strict_json(&read(state_path, 1024 * 1024)?)?
     } else {
@@ -1101,6 +1113,22 @@ pub fn run_cli(args: &[String]) -> Result<Value> {
 #[cfg(test)]
 mod go_tests {
     use super::*;
+    #[test]
+    fn publication_lock_releases_even_when_a_duplicate_descriptor_survives() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("publication.lock");
+        let lock = PublicationLock::acquire(&path, "locked").unwrap();
+        // A duplicate models the open file description inherited by fork.
+        let inherited = lock.0.try_clone().unwrap();
+        assert!(PublicationLock::acquire(&path, "locked").is_err());
+        drop(lock);
+        let next = PublicationLock::acquire(&path, "locked").unwrap();
+        drop(inherited);
+        assert!(PublicationLock::acquire(&path, "locked").is_err());
+        drop(next);
+        assert!(PublicationLock::acquire(&path, "locked").is_ok());
+    }
+
     #[test]
     fn go_proxy_publication_preserves_versions_and_checks_completed_retries() {
         let temp = tempfile::tempdir().unwrap();
