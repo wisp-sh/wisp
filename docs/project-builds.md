@@ -344,6 +344,29 @@ For the 50.0.0 compiler path, Wisp prefers its matching `wisp-worker`, found bes
 executables together when installing or snapshotting the CLI. The configured
 CLI host remains a fallback when no worker is available. There is
 no lookup inside the Rust compiler bundle for a bundled Wasmtime executable.
+
+`wisp run` and direct `wisp-worker run` supervise a separate worker process.
+`--timeout-ms` limits the request's wall-clock time, including artifact reads,
+compilation and suspended WASI host calls. A timeout kills and reaps the worker;
+its instances and resource handles cannot be reused. Epoch deadlines also
+interrupt running Wasm. Worker startup and the protocol handshake precede the
+request deadline.
+
+`wisp run` stores its compiled-artifact cache under
+`$XDG_CACHE_HOME/wisp/worker`, or `$HOME/.cache/wisp/worker` when
+`XDG_CACHE_HOME` is unset or empty. On Windows the fallback is
+`%LOCALAPPDATA%/wisp/worker`. Set `WISP_WORKER_CACHE` to an absolute directory
+to override this location. Choose a persistent disk-backed filesystem with
+enough space for the compiled modules. This cache no longer uses `TMPDIR` or
+the system temporary directory. Build commands retain their configured caches;
+direct `wisp-worker run` enables caching when `XDG_CACHE_HOME` is set.
+
+The run cache contains rebuildable Wasmtime artifacts. To reclaim its space,
+stop runs using it and remove the selected `wisp/worker` directory or explicit
+`WISP_WORKER_CACHE` directory. Wisp does not migrate or delete the old
+`wisp-worker-cache` directory in the system temporary directory. Remove that
+old directory separately after any workers using it have stopped.
+
 Rust 1.99.1 is a WASIp3 compiler Component with LLVM 24 linked into it. It uses
 Wasmtime 50.0.0. Wisp checks the compiler manifest and execution host before
 compilation. `WISP_RUST_WASMTIME` overrides the host; the compiler can also use

@@ -1,4 +1,6 @@
 //! Package-manager-based libraries. This format does not change schema-1/2 releases.
+#[path = "library_admission.rs"]
+mod admission;
 #[path = "library_rust_guest.rs"]
 pub(crate) mod rust_guest;
 #[path = "library_worker.rs"]
@@ -1357,19 +1359,10 @@ fn tree(root: &Path, prefix: &str, files: &mut crate::release::Files) -> Result<
 /// Admission reconstructs contract-bearing files without executing guest code.
 pub fn validate(dir: &Path) -> Result<Value> {
     let dir = dir.canonicalize()?;
-    for name in [
-        "library-release.json",
-        "component.wasm",
-        "rust.crate",
-        "node.tgz",
-    ] {
-        let metadata = fs::symlink_metadata(dir.join(name))?;
-        ensure!(
-            metadata.is_file() && metadata.len() <= 128 * 1024 * 1024,
-            "invalid library release file: {name}"
-        );
-    }
-    let release = crate::release::strict_json(&fs::read(dir.join("library-release.json"))?)?;
+    let release = crate::release::strict_json(&admission::read_file(
+        &dir.join("library-release.json"),
+        admission::MAX_ARCHIVE_BYTES,
+    )?)?;
     crate::release::exact(
         &release,
         &[
@@ -1405,7 +1398,10 @@ pub fn validate(dir: &Path) -> Result<Value> {
     );
     let (cargo_name, npm_name) =
         package_names(release["identity"].as_str().context("library identity")?)?;
-    let component = fs::read(dir.join("component.wasm"))?;
+    let component = admission::read_file(
+        &dir.join("component.wasm"),
+        crate::limits::MAX_COMPONENT_BYTES,
+    )?;
     ensure!(
         component.len() <= crate::limits::MAX_COMPONENT_BYTES as usize
             && release["componentSha256"] == digest(&component),
@@ -1454,13 +1450,11 @@ pub fn validate(dir: &Path) -> Result<Value> {
     if let Some(go) = go {
         crate::release::exact(go, &["name", "sha256", "platform"], "Go package")?;
         let name = go["name"].as_str().context("Go module name")?;
-        let archive = dir.join("go.zip");
-        ensure!(
-            fs::symlink_metadata(&archive)?.is_file()
-                && fs::metadata(&archive)?.len() <= 128 * 1024 * 1024,
-            "Go archive size limit"
-        );
-        let bytes = fs::read(archive)?;
+        let module_file =
+            admission::read_file(&dir.join("go.mod"), admission::MAX_GO_DESCRIPTOR_BYTES)?;
+        let info_file =
+            admission::read_file(&dir.join("go.info"), admission::MAX_GO_DESCRIPTOR_BYTES)?;
+        let bytes = admission::read_file(&dir.join("go.zip"), admission::MAX_ARCHIVE_BYTES)?;
         ensure!(go["sha256"] == digest(&bytes), "Go archive hash mismatch");
         let report = if go["platform"] == crate::library_go::portable::PLATFORM {
             crate::library_go::portable::verify_archive(
@@ -1496,7 +1490,7 @@ pub fn validate(dir: &Path) -> Result<Value> {
             module = crate::library_go::portable::module_file(name);
         }
         ensure!(
-            fs::read(dir.join("go.mod"))? == module && fs::read(dir.join("go.info"))? == info,
+            module_file == module && info_file == info,
             "Go module descriptor mismatch"
         );
     }
@@ -1510,7 +1504,7 @@ pub fn validate(dir: &Path) -> Result<Value> {
             &["name", "sha256"],
             "library package",
         )?;
-        let archive = fs::read(dir.join(filename))?;
+        let archive = admission::read_file(&dir.join(filename), admission::MAX_ARCHIVE_BYTES)?;
         ensure!(
             release["packages"][target]["name"] == name
                 && release["packages"][target]["sha256"] == digest(&archive),
@@ -1697,13 +1691,10 @@ struct Component {
 }
 
 fn read_rust_guest_release(directory: &Path) -> Result<Vec<u8>> {
-    let path = directory.join("library-release.json");
-    let metadata = fs::symlink_metadata(&path)?;
-    ensure!(
-        metadata.is_file() && metadata.len() <= 1024 * 1024,
-        "invalid library release metadata"
-    );
-    Ok(fs::read(path)?)
+    admission::read_file(
+        &directory.join("library-release.json"),
+        admission::MAX_METADATA_BYTES,
+    )
 }
 
 pub fn run_cli(args: &[String]) -> Result<Value> {
@@ -1722,7 +1713,10 @@ pub fn run_cli(args: &[String]) -> Result<Value> {
         let (crate_name, _) = package_names(identity)?;
         let output = Path::new(&args[3]);
         ensure!(!output.try_exists()?, "Rust guest output already exists");
-        let component = fs::read(directory.join("component.wasm"))?;
+        let component = admission::read_file(
+            &directory.join("component.wasm"),
+            crate::limits::MAX_COMPONENT_BYTES,
+        )?;
         let parent = output
             .parent()
             .filter(|p| !p.as_os_str().is_empty())
