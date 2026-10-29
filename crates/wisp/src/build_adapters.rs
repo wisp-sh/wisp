@@ -553,7 +553,7 @@ impl Toolchain {
                         "entry is only supported by the legacy scalar Python adapter"
                     );
                     wit_args(&mut argv, &wit, resolve, world, false);
-                    if project.is_some() {
+                    if unit.project.is_some() {
                         argv.extend([
                             "--package-root".into(),
                             module_root.to_string_lossy().into_owned(),

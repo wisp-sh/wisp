@@ -37,7 +37,7 @@ jobs:
         with:
           repository: wisp-sh/wisp-buildtools
           ref: b4e22da79440a0c427768f4b3e9756a6d896c138
-          path: .compiler
+          path: .tools/csharp-recipe
           persist-credentials: false
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
         with:
@@ -56,16 +56,15 @@ jobs:
           findmnt -T "$RUNNER_TEMP"
           ps -eo pid,comm,rss --sort=-rss | head -20
       - name: Provision pinned bootstrap and execution tools
-        run: python3 .compiler/tools/ci-prerequisites.py install csharp > evidence/csharp/prerequisites.log 2>&1
+        run: python3 .tools/csharp-recipe/tools/ci-prerequisites.py install csharp > evidence/csharp/prerequisites.log 2>&1
       - name: Bootstrap, execute and package the changed Wasm compiler
-        working-directory: .compiler
         run: |
           set -euo pipefail
-          python3 build.py build csharp --jobs 1 > ../evidence/csharp/compiler-build.log 2>&1
-          python3 build.py test csharp --jobs 1 > ../evidence/csharp/compiler-test.log 2>&1
-          cp csharp/verification.json ../evidence/csharp/compiler-verification.json
+          python3 .tools/csharp-recipe/build.py build csharp --jobs 1 > evidence/csharp/compiler-build.log 2>&1
+          python3 .tools/csharp-recipe/build.py test csharp --jobs 1 > evidence/csharp/compiler-test.log 2>&1
+          cp .tools/csharp-recipe/csharp/verification.json evidence/csharp/compiler-verification.json
           for tool in csharp wasm-tools; do
-            python3 build.py package "$tool" --jobs 1 --output-dir ../.tools/csharp-bundles >> ../evidence/csharp/package.log 2>&1
+            python3 .tools/csharp-recipe/build.py package "$tool" --jobs 1 --output-dir "$PWD/.tools/csharp-bundles" >> evidence/csharp/package.log 2>&1
           done
       - name: Provision package generators and build the changed Wisp CLI
         run: |
@@ -82,13 +81,13 @@ jobs:
         run: |
           set -euo pipefail
           cp "$WISP_CWASM_RUNTIME" .tools/csharp-hosts/wasmtime
-          cp .compiler/csharp/verify_component.py .tools/csharp-hosts/verify_component.py
+          cp .tools/csharp-recipe/csharp/verify_component.py .tools/csharp-hosts/verify_component.py
           cp -a "$WISP_WASMTIME_PYTHON" .tools/csharp-hosts/python
           echo "WISP_WASMTIME=$PWD/.tools/csharp-hosts/wasmtime" >> "$GITHUB_ENV"
           echo "WISP_CWASM_RUNTIME=$PWD/.tools/csharp-hosts/wasmtime" >> "$GITHUB_ENV"
           echo "WISP_WASMTIME_PYTHON=$PWD/.tools/csharp-hosts/python" >> "$GITHUB_ENV"
           echo "WISP_CSHARP_ACCEPTANCE_BINDINGS=$PWD/.tools/csharp-hosts/python" >> "$GITHUB_ENV"
-          mv .compiler "$RUNNER_TEMP/csharp-recipe-unavailable"
+          mv .tools/csharp-recipe "$RUNNER_TEMP/csharp-recipe-unavailable"
       - name: Build offline projects from fresh installs and execute archive consumers
         run: |
           set -euo pipefail
