@@ -1,0 +1,11 @@
+name: Build Wisp library packages
+description: Install the pinned runtime and compile source without OIDC or registry credentials
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        WISP_ACTION_ROOT: ${{ github.action_path }}/../../..
+      run: |
+        python3 -I "$WISP_ACTION_ROOT/scripts/ci/runtime.py" --out "$RUNNER_TEMP/wisp-runtime"
+        python3 -I "$WISP_ACTION_ROOT/scripts/ci/build.py" --source source --runtime "$RUNNER_TEMP/wisp-runtime" --out "$RUNNER_TEMP/wisp-artifacts" --repository "$GITHUB_REPOSITORY"

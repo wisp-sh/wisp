@@ -1,0 +1,27 @@
+name: Publish Wisp library packages
+description: Plan or upload release archives to the owner's registries with trusted publishing
+inputs:
+  command:
+    description: plan, npm, or cargo
+    required: true
+outputs:
+  npm:
+    description: Whether any package declares an npm target
+    value: ${{ steps.run.outputs.npm }}
+  cargo:
+    description: Whether any package declares a crates.io target
+    value: ${{ steps.run.outputs.cargo }}
+  pypi:
+    description: Whether any package declares a PyPI target
+    value: ${{ steps.run.outputs.pypi }}
+runs:
+  using: composite
+  steps:
+    - id: run
+      shell: bash
+      env:
+        WISP_ACTION_ROOT: ${{ github.action_path }}/../../..
+        WISP_COMMAND: ${{ inputs.command }}
+      run: |
+        case "$WISP_COMMAND" in plan|npm|cargo) ;; *) echo "unknown publish command" >&2; exit 1 ;; esac
+        python3 -I "$WISP_ACTION_ROOT/scripts/ci/publish.py" "$WISP_COMMAND" --artifacts "$RUNNER_TEMP/wisp-artifacts" --wheels "$RUNNER_TEMP/wisp-wheels"
