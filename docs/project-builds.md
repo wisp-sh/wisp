@@ -3,7 +3,7 @@
 `wisp build` reads a project's `wisp.toml`, runs the selected Wasm-hosted
 compiler, and packages its Component through the schema-3 library packer and
 admission checks. It supports C/C++, Go, Rust, Zig, AssemblyScript, Nim,
-JavaScript, TypeScript, Python, Grain, Bend 2, Goose, Swift, Java and Kotlin.
+JavaScript, TypeScript, Python, Grain, Bend 2, Goose, Swift, C#, Java and Kotlin.
 
 ```sh
 wisp build path/to/project --out out/release
@@ -58,8 +58,30 @@ and version. The generated and selected contracts stay under `build/units/`.
 | `grain` | Raw scalar exports with an adjacent or authored WIT contract; heap values require ABI conversion |
 | `bend` | Bend 2 direct `U32`/`F32` function exports through the JavaScript backend; sequential execution |
 | `swift` | Scalar exports with matching Wasm export attributes; aggregates require ABI conversion |
+| `csharp` | Experimental Mono interpreter; multiple files, directories or offline `net8.0` projects. Semantic public static API discovery and authored rich WIT exports; optional `entry = "Namespace.Type"`. |
 | `java`, `kotlin` | TeaVM scalar exports; set `entry` to the main class, such as `Math` or `MathKt` |
 | `python` | Default scalar `wisp:python/api@0.1.0` adapter, or multiple typed exports through an authored WIT contract and a separately provisioned runtime template |
+
+C# discovers public static methods and supported data types using Wasm-hosted
+Roslyn when no contract is supplied. Select authored WIT with `build.wit` and
+`build.world`, or an adjacent `.wit` contract.
+Select the adapter with `build.tools.csharp` or `WISP_CSHARP_TOOLCHAIN`. Roslyn
+compiles source, project references and typed bindings inside Mono WASI; a fixed
+Mono interpreter executes the output IL. Native .NET and WASI SDK tools are
+bootstrap-only. Multiple root/interface exports support all scalars, Unicode
+strings, lists, records, tuples, enums, flags, options and results. `entry` names
+a public type to limit discovery or resolve authored method matching. Public
+static overloads, unsupported types and normalized-name collisions fail inference
+rather than dropping part of the API. Nullable annotations become options.
+
+Use `build.project` as the common parent of sources and `ProjectReference`
+dependencies. Local managed `Reference/HintPath` DLLs stay inside that project.
+Exact `PackageReference` dependencies use offline `.nupkg` files in its `packages`
+directory. Wisp snapshots those inputs and excludes `bin` and `obj` outputs.
+No MSBuild tasks, generators or package restore run. WIT imports, resources,
+general variants, async contracts and general .NET API compatibility remain
+unsupported. Components are roughly 21 MiB and incur Mono interpreter startup.
+See the [C# example](../examples/build-csharp/README.md).
 
 Goose runs its frontend and C backend inside Wasm. Its initial `scalar-v1`
 profile rejects implementations requiring dynamic data stacks, threads, queues

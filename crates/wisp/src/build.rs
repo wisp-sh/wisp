@@ -130,6 +130,7 @@ struct Tools {
     goose: Option<PathBuf>,
     goose_frontend_host: Option<PathBuf>,
     swift: Option<PathBuf>,
+    csharp: Option<PathBuf>,
     java: Option<PathBuf>,
     kotlin: Option<PathBuf>,
     ocaml: Option<PathBuf>,
@@ -238,6 +239,7 @@ enum Compiler {
     Bend,
     Goose,
     Swift,
+    Csharp,
     Java,
     Kotlin,
     Ocaml,
@@ -261,6 +263,7 @@ impl Compiler {
             Self::Bend => "bend",
             Self::Goose => "goose",
             Self::Swift => "swift",
+            Self::Csharp => "csharp",
             Self::Java => "java",
             Self::Kotlin => "kotlin",
             Self::Ocaml => "ocaml",
@@ -1081,6 +1084,12 @@ pub fn run_cli(args: &[String]) -> Result<Value> {
             )?;
             if let Some(contracts) = &inferred_contracts {
                 check_inferred_sources(contracts, name, &files)?;
+                if contracts.complete_sources.contains(name) {
+                    ensure!(
+                        contracts.sources[name] == files,
+                        "C# source inventory changed during API discovery; rebuild the project"
+                    );
+                }
             }
             component
         } else {
@@ -1491,6 +1500,7 @@ mod naming_tests {
             "goose",
             "bend",
             "swift",
+            "csharp",
             "java",
             "kotlin",
             "ocaml",
