@@ -70,6 +70,12 @@ jobs:
         run: |
           set -euo pipefail
           python3 tests/library-chain/setup.py > evidence/csharp/consumer-setup.log 2>&1
+          python3 tools/upstream-bindings/setup.py --out .tools/upstream-bindings >> evidence/csharp/consumer-setup.log 2>&1
+          export WISP_WIT_BINDGEN="$PWD/.tools/upstream-bindings/wit-bindgen"
+          export WISP_NODE="$PWD/.tools/library-chain-node/node/bin/node"
+          export WISP_JCO="$PWD/.tools/library-js/node_modules/.bin/jco"
+          export PATH="$PWD/.tools/library-chain-node/node/bin:$PATH"
+          echo "WISP_WIT_BINDGEN=$WISP_WIT_BINDGEN" >> "$GITHUB_ENV"
           cargo build --locked --offline -p wisp -p wisp-worker > evidence/csharp/wisp-build.log 2>&1
           cargo test --locked --offline -p wisp --bin wisp --test build --test cli -- --test-threads=1 > evidence/csharp/wisp-tests.log 2>&1
           echo "WISP_WORKER=$PWD/target/debug/wisp-worker" >> "$GITHUB_ENV"
@@ -95,6 +101,7 @@ jobs:
             env PATH="$PATH" HOME="$HOME" TMPDIR="$TMPDIR" \
               CARGO_TARGET_DIR="$CARGO_TARGET_DIR" RUSTUP_TOOLCHAIN=1.98.1 \
               WISP_WORKER="$WISP_WORKER" WISP_NODE="$WISP_NODE" WISP_JCO="$WISP_JCO" \
+              WISP_WIT_BINDGEN="$WISP_WIT_BINDGEN" \
               WISP_WASMTIME="$WISP_WASMTIME" \
             python3 tests/source-build/csharp.py --cli target/debug/wisp \
               --bundles .tools/csharp-bundles --out out/csharp-acceptance \
