@@ -14,7 +14,7 @@ pub(super) fn validate(compiler: Compiler, unit: &Unit) -> Result<()> {
     );
     let multiple = matches!(
         compiler,
-        Compiler::Swift | Compiler::Java | Compiler::Kotlin
+        Compiler::Swift | Compiler::Java | Compiler::Kotlin | Compiler::Ocaml
     );
     ensure!(
         multiple || unit.sources.len() == 1,
@@ -29,10 +29,10 @@ pub(super) fn validate(compiler: Compiler, unit: &Unit) -> Result<()> {
             "{} requires entry naming the main class",
             compiler.name()
         );
-    } else if !matches!(compiler, Compiler::Python) {
+    } else if !matches!(compiler, Compiler::Python | Compiler::Ocaml) {
         ensure!(
             unit.entry.is_none(),
-            "entry is supported by Java, Kotlin and Python"
+            "entry is supported by Java, Kotlin, Python and OCaml"
         );
     }
     if let Some(entry) = &unit.entry {
@@ -130,6 +130,7 @@ impl Toolchain {
             Compiler::Swift => &tools.swift,
             Compiler::Java => &tools.java,
             Compiler::Kotlin => &tools.kotlin,
+            Compiler::Ocaml => &tools.ocaml,
             _ => bail!("compiler does not use a packaged adapter"),
         };
         let variable = if matches!(compiler, Compiler::Typescript)
@@ -200,6 +201,7 @@ impl Toolchain {
                         | Compiler::Goose
                         | Compiler::Java
                         | Compiler::Kotlin
+                        | Compiler::Ocaml
                 ),
                 "WISP_LLVM" | "WISP_LLVM_TOOLCHAIN" => matches!(
                     compiler,
@@ -208,6 +210,7 @@ impl Toolchain {
                         | Compiler::Goose
                         | Compiler::Java
                         | Compiler::Kotlin
+                        | Compiler::Ocaml
                 ),
                 "WISP_LLVM_SWIFT" => matches!(compiler, Compiler::Swift),
                 "WISP_WASM_TOOLS" | "WISP_WASM_TOOLS_TOOLCHAIN" => matches!(
@@ -220,6 +223,7 @@ impl Toolchain {
                         | Compiler::Swift
                         | Compiler::Java
                         | Compiler::Kotlin
+                        | Compiler::Ocaml
                 ),
                 "WISP_PREVIEW1_ADAPTER" => matches!(
                     compiler,
@@ -229,6 +233,7 @@ impl Toolchain {
                         | Compiler::Swift
                         | Compiler::Java
                         | Compiler::Kotlin
+                        | Compiler::Ocaml
                 ),
                 "WISP_JVM_TOOLCHAIN" | "WISP_TEAVM_TOOLCHAIN" => {
                     matches!(compiler, Compiler::Java | Compiler::Kotlin)
@@ -283,6 +288,23 @@ impl Toolchain {
                 "Goose-Apache-2.0.txt".into(),
                 String::from_utf8(read(&path, MAX_SOURCE)?)?,
             );
+        }
+        if matches!(self.compiler, Compiler::Ocaml) {
+            let directory = self
+                .script
+                .path
+                .parent()
+                .context("OCaml package directory")?
+                .join("dist/licenses");
+            for entry in fs::read_dir(directory)? {
+                let entry = entry?;
+                ensure!(entry.file_type()?.is_file(), "invalid OCaml runtime notice");
+                let name = entry.file_name().to_string_lossy().into_owned();
+                notices.insert(
+                    format!("ocaml-{name}"),
+                    String::from_utf8(read(&entry.path(), MAX_SOURCE)?)?,
+                );
+            }
         }
         Ok(notices)
     }
@@ -363,6 +385,16 @@ impl Toolchain {
                     module_root.to_string_lossy().into_owned(),
                 ]);
                 wit_args(&mut argv, &wit, resolve, world, false);
+            }
+            Compiler::Ocaml => {
+                argv.extend([
+                    "--project-root".into(),
+                    module_root.to_string_lossy().into_owned(),
+                ]);
+                wit_args(&mut argv, &wit, resolve, world, true);
+                if let Some(entry) = &unit.entry {
+                    argv.extend(["--entry-module".into(), entry.clone()]);
+                }
             }
             Compiler::Bend => {
                 argv.extend([
@@ -562,6 +594,7 @@ fn source_extension(compiler: Compiler, path: &Path) -> bool {
         Compiler::Swift => extension == Some("swift"),
         Compiler::Java => extension == Some("java"),
         Compiler::Kotlin => extension == Some("kt"),
+        Compiler::Ocaml => matches!(extension, Some("ml" | "mli")),
         _ => false,
     }
 }
@@ -646,6 +679,82 @@ pub(super) fn validate_component(bytes: &[u8], resolve: &Resolve, world: WorldId
         "Component imports differ from selected WIT world"
     );
     Ok(())
+}
+
+/// OCaml uses its public .mli, parsed by the installed adapter without executing
+/// application code. Keep the discovered hashes for the later staging check.
+pub(super) fn infer_ocaml(
+    root: &Path,
+    unit: &Unit,
+    tools: &Tools,
+) -> Result<(String, BTreeMap<String, String>)> {
+    validate(Compiler::Ocaml, unit)?;
+    let toolchain = Toolchain::load(root, tools, Compiler::Ocaml)?;
+    let sources = unit
+        .sources
+        .iter()
+        .map(|p| input(root, p))
+        .collect::<Result<Vec<_>>>()?;
+    let project = match &unit.project {
+        Some(path) => input(root, path)?,
+        None => common_parent(&sources)?,
+    };
+    let mut command = Command::new(&toolchain.python.path);
+    command
+        .arg(&toolchain.script.path)
+        .args(&sources)
+        .arg("--project-root")
+        .arg(&project)
+        .arg("--infer")
+        .env("PYTHONDONTWRITEBYTECODE", "1")
+        .stdin(Stdio::null());
+    if let Some(entry) = &unit.entry {
+        command.arg("--entry-module").arg(entry);
+    }
+    let output = command
+        .output()
+        .context("discovering the OCaml public .mli")?;
+    ensure!(
+        output.status.success(),
+        "OCaml API discovery failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    ensure!(
+        output.stdout.len() <= MAX_SOURCE as usize,
+        "OCaml discovery output limit"
+    );
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct Discovery {
+        body: String,
+        project: PathBuf,
+        sources: BTreeMap<String, String>,
+    }
+    let discovery: Discovery =
+        serde_json::from_slice(&output.stdout).context("OCaml API discovery receipt")?;
+    ensure!(
+        discovery.project == project,
+        "OCaml discovery project mismatch"
+    );
+    let mut hashes = BTreeMap::new();
+    for (name, hash) in discovery.sources {
+        let path = input(&project, Path::new(&name))?;
+        ensure!(
+            digest(&read(&path, MAX_SOURCE)?) == hash,
+            "OCaml source changed during API discovery"
+        );
+        hashes.insert(
+            path.strip_prefix(root)?
+                .to_string_lossy()
+                .replace('\\', "/"),
+            hash,
+        );
+    }
+    ensure!(
+        digest(&read(&toolchain.script.path, MAX_SOURCE)?) == toolchain.script.sha256,
+        "OCaml adapter changed during API discovery"
+    );
+    Ok((discovery.body, hashes))
 }
 
 #[cfg(test)]

@@ -1,0 +1,129 @@
+name: OCaml installed source acceptance
+on:
+  push:
+    paths:
+      - '.github/workflows/ocaml-source-acceptance.yml'
+      - 'tests/ocaml/**'
+      - 'examples/build-ocaml/**'
+  workflow_dispatch:
+    inputs:
+      buildtools_ref:
+        description: Exact wisp-buildtools candidate commit
+        type: string
+        required: true
+permissions:
+  contents: read
+concurrency:
+  group: ocaml-source-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  contracts:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Check acceptance scripts and immutable bundle descriptors
+        run: |
+          python3 - <<'PYTHON'
+          import ast, json, re
+          from pathlib import Path
+          for p in Path('tests/ocaml').glob('*.py'): ast.parse(p.read_text(), filename=str(p))
+          manifest=json.loads(Path('tests/ocaml/compiler-inputs.json').read_text())
+          assert {b['tool'] for b in manifest['bundles']} == {'ocaml','clang','llvm','wasm-tools'}
+          for b in manifest['bundles']:
+              assert re.fullmatch('[0-9a-f]{64}', b['sha256']) and b['size'] > 0
+          PYTHON
+  acceptance:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    env:
+      CARGO_BUILD_JOBS: '1'
+      CARGO_INCREMENTAL: '0'
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Prepare disposable runner capacity
+        run: |
+          sudo rm -rf -- /usr/share/dotnet /usr/local/lib/android /usr/local/.ghcup /opt/hostedtoolcache/CodeQL
+          free -h
+          df -h .
+          df -i .
+          findmnt -T "$RUNNER_TEMP"
+          mkdir -p evidence/ocaml
+          echo "TMPDIR=$RUNNER_TEMP" >> "$GITHUB_ENV"
+      - name: Require an immutable compiler source
+        env:
+          BUILDTOOLS_REF: ${{ inputs.buildtools_ref }}
+        run: '[[ "$BUILDTOOLS_REF" =~ ^[0-9a-f]{40}$ ]]'
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: wisp-sh/wisp-buildtools
+          ref: ${{ inputs.buildtools_ref }}
+          path: .tools/wisp-buildtools
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: wisp-sh/wisp-pkgs
+          ref: a9a1056b5326068e0f84eda6fdf2d2098ca649b5
+          path: .tools/wisp-pkgs
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.13'
+      - name: Install authenticated execution hosts and consumer tools
+        run: |
+          python3 scripts/ci/runtime.py --out "$RUNNER_TEMP/runtime"
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          root = Path(os.environ['RUNNER_TEMP'])/'runtime'
+          catalog = json.loads((root/'wisp-runtime.json').read_text())
+          with open(os.environ['GITHUB_ENV'],'a') as out:
+              for key, value in catalog['env'].items():
+                  if key != 'CARGO_TARGET_DIR': out.write(f'{key}={root/value}\n')
+              out.write('CARGO_TARGET_DIR=' + os.environ['GITHUB_WORKSPACE'] + '/target\n')
+          with open(os.environ['GITHUB_PATH'],'a') as out:
+              for path in ('rust/bin','node/bin','bin','js/node_modules/.bin'): out.write(str(root/path)+'\n')
+          PY
+      - name: Build candidate CLI and worker and run targeted source tests
+        run: |
+          cargo build --locked -p wisp -p wisp-worker -j1
+          cargo test --locked -p wisp --bin wisp build -- --test-threads=1
+          cargo test --locked -p wisp --test build -- --test-threads=1
+      - name: Package changed OCaml adapters and install all compiler bundles fresh
+        run: python3 tests/ocaml/setup.py --buildtools .tools/wisp-buildtools --runtime "$RUNNER_TEMP/runtime" --out "$RUNNER_TEMP/ocaml"
+      - name: Execute installed compiler and library consumers without network access
+        run: |
+          source "$RUNNER_TEMP/ocaml/environment.sh"
+          sudo --preserve-env unshare --net --setuid "$(id -u)" --setgid "$(id -g)" \
+            python3 tests/ocaml/acceptance.py --out "$RUNNER_TEMP/ocaml" --buildtools "$PWD/.tools/wisp-buildtools"
+      - name: Rebuild CPDF with the candidate installed compiler and verify commands
+        run: |
+          source "$RUNNER_TEMP/ocaml/environment.sh"
+          python3 .tools/wisp-pkgs/cpdf/fetch.py
+          mkdir -p .tools/wisp-pkgs/cpdf/dist
+          python3 .tools/wisp-pkgs/cpdf/verify.py --rebuild --ocaml-toolchain "$WISP_OCAML_TOOLCHAIN"
+          cp .tools/wisp-pkgs/cpdf/dist/verification.json evidence/ocaml/cpdf.json
+      - name: Retain bounded acceptance evidence
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import os, shutil
+          from pathlib import Path
+          source = Path(os.environ['RUNNER_TEMP'])/'ocaml'
+          out = Path('evidence/ocaml'); out.mkdir(parents=True,exist_ok=True)
+          for name in ('setup.json','result.json','commands.json'):
+              p=source/name
+              if p.is_file() and p.stat().st_size < 4*1024**2: shutil.copyfile(p,out/name)
+          PY
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: ocaml-acceptance-evidence
+          path: evidence/ocaml
+          retention-days: 14
+          if-no-files-found: error

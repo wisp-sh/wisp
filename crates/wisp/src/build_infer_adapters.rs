@@ -21,7 +21,11 @@ pub(super) fn contract(
     unit: &Unit,
     compiler: Compiler,
     resolve: &mut Resolve,
+    tools: &Tools,
 ) -> Result<(String, BTreeMap<String, String>)> {
+    if matches!(compiler, Compiler::Ocaml) {
+        return crate::build::adapters::infer_ocaml(root, unit, tools);
+    }
     ensure!(
         !unit.sources.is_empty(),
         "{} requires sources",
@@ -411,8 +415,14 @@ mod tests {
         fs::write(root.path().join("main.wit"), "package demo:original@1.2.0; interface math { add: func(a:f64,b:f64)->f64; } world library { import math; export answer: func()->f64; }").unwrap();
         let unit: Unit = toml::from_str("compiler='typescript'\nsources=['./main.ts']").unwrap();
         let mut resolve = Resolve::default();
-        let (body, hashes) =
-            contract(root.path(), &unit, Compiler::Typescript, &mut resolve).unwrap();
+        let (body, hashes) = contract(
+            root.path(),
+            &unit,
+            Compiler::Typescript,
+            &mut resolve,
+            &Tools::default(),
+        )
+        .unwrap();
         let p = resolve
             .push_str(
                 "generated.wit",

@@ -580,3 +580,8 @@ crate from the provider's WIT using the same pinned upstream Rust generator.
 Its APIs follow upstream package/module names and ownership rules. It contains
 no embedded host runtime. Resources, async handles and flags remain excluded
 from this synchronous source projection.
+
+OCaml source projects use `compiler = "ocaml"` and a public `.mli` interface.
+See [OCaml source support](ocaml-support.md) and
+[`examples/build-ocaml`](../examples/build-ocaml) for supported types, compiler
+installation and the remaining language restrictions.

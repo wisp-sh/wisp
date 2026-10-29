@@ -132,6 +132,7 @@ struct Tools {
     swift: Option<PathBuf>,
     java: Option<PathBuf>,
     kotlin: Option<PathBuf>,
+    ocaml: Option<PathBuf>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "kebab-case")]
@@ -239,6 +240,7 @@ enum Compiler {
     Swift,
     Java,
     Kotlin,
+    Ocaml,
 }
 impl Compiler {
     fn is_adapter(self) -> bool {
@@ -261,6 +263,7 @@ impl Compiler {
             Self::Swift => "swift",
             Self::Java => "java",
             Self::Kotlin => "kotlin",
+            Self::Ocaml => "ocaml",
         }
     }
 }
@@ -1490,6 +1493,7 @@ mod naming_tests {
             "swift",
             "java",
             "kotlin",
+            "ocaml",
         ] {
             let config: Config = toml::from_str(&format!(
                 "[package]\nname='test:names'\nversion='0.1.0'\n[build]\ncompiler='{name}'\n"

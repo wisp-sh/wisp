@@ -374,9 +374,22 @@ pub(super) fn generate(
             .compiler
             .context("inferred source unit requires compiler")?;
         if compiler.is_adapter() {
-            let (body, hashes) = adapters::contract(root, unit, compiler, resolve)?;
+            let (body, hashes) =
+                adapters::contract(root, unit, compiler, resolve, &config.build.tools)?;
             unit.world = wire_name(name)?;
-            wit.push_str(&format!("world %{} {{\n{body}\n}}\n", unit.world));
+            if matches!(compiler, Compiler::Ocaml) {
+                let interface = if source_units.len() == 1 {
+                    "api".to_owned()
+                } else {
+                    format!("{}-api", wire_name(name)?)
+                };
+                wit.push_str(&format!(
+                    "interface %{interface} {{\n{body}\n}}\nworld %{} {{ export %{interface}; }}\n",
+                    unit.world
+                ));
+            } else {
+                wit.push_str(&format!("world %{} {{\n{body}\n}}\n", unit.world));
+            }
             sources.insert(name.clone(), hashes);
             functions.insert(name.clone(), BTreeMap::new());
             continue;
