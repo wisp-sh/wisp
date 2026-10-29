@@ -65,7 +65,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   library:
-    uses: wisp-sh/wisp/.github/workflows/wisp-build.yml@WISP_WORKFLOW_COMMIT
+    uses: wisp-sh/wisp/.github/workflows/wisp-build.yml@aee64fcaf6a5be6bb5f6922538bd1f7a9d2332ba
     with:
       publish: true
       wisp_url: https://wisp.codes
