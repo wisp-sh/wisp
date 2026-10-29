@@ -14,7 +14,7 @@ pub(super) fn validate(compiler: Compiler, unit: &Unit) -> Result<()> {
     );
     let multiple = matches!(
         compiler,
-        Compiler::Swift | Compiler::Java | Compiler::Kotlin
+        Compiler::Swift | Compiler::Java | Compiler::Kotlin | Compiler::Csharp
     );
     ensure!(
         multiple || unit.sources.len() == 1,
@@ -29,10 +29,10 @@ pub(super) fn validate(compiler: Compiler, unit: &Unit) -> Result<()> {
             "{} requires entry naming the main class",
             compiler.name()
         );
-    } else if !matches!(compiler, Compiler::Python) {
+    } else if !matches!(compiler, Compiler::Python | Compiler::Csharp) {
         ensure!(
             unit.entry.is_none(),
-            "entry is supported by Java, Kotlin and Python"
+            "entry is supported by Java, Kotlin, C# and Python"
         );
     }
     if let Some(entry) = &unit.entry {
@@ -128,6 +128,7 @@ impl Toolchain {
             Compiler::Bend => &tools.bend,
             Compiler::Goose => &tools.goose,
             Compiler::Swift => &tools.swift,
+            Compiler::Csharp => &tools.csharp,
             Compiler::Java => &tools.java,
             Compiler::Kotlin => &tools.kotlin,
             _ => bail!("compiler does not use a packaged adapter"),
@@ -222,7 +223,8 @@ impl Toolchain {
                 "WISP_LLVM_SWIFT" => matches!(compiler, Compiler::Swift),
                 "WISP_WASM_TOOLS" | "WISP_WASM_TOOLS_TOOLCHAIN" => matches!(
                     compiler,
-                    Compiler::Javascript
+                    Compiler::Csharp
+                        | Compiler::Javascript
                         | Compiler::Typescript
                         | Compiler::Python
                         | Compiler::Grain
@@ -233,7 +235,8 @@ impl Toolchain {
                 ),
                 "WISP_PREVIEW1_ADAPTER" => matches!(
                     compiler,
-                    Compiler::Nim
+                    Compiler::Csharp
+                        | Compiler::Nim
                         | Compiler::Goose
                         | Compiler::Grain
                         | Compiler::Swift
@@ -287,6 +290,34 @@ impl Toolchain {
 
     pub(super) fn notices(&self) -> Result<BTreeMap<String, String>> {
         let mut notices = BTreeMap::new();
+        if matches!(self.compiler, Compiler::Csharp) {
+            let base = self
+                .script
+                .path
+                .parent()
+                .context("C# package directory")?
+                .join("dist/licenses");
+            let mut text = String::new();
+            for name in [
+                "mono-LICENSE.txt",
+                "mono-NOTICES.txt",
+                "wasi-sdk/compiler-rt-LICENSE.TXT",
+                "wasi-sdk/libcxx-LICENSE.TXT",
+                "wasi-sdk/libcxxabi-LICENSE.TXT",
+                "wasi-sdk/wasi-libc/LICENSE",
+                "wasi-sdk/wasi-libc/LICENSE-APACHE-LLVM",
+                "wasi-sdk/wasi-libc/LICENSE-APACHE",
+                "wasi-sdk/wasi-libc/LICENSE-MIT",
+                "wasi-sdk/wasi-libc/libc-bottom-half/cloudlibc/LICENSE",
+                "wasi-sdk/wasi-libc/libc-top-half/musl/COPYRIGHT",
+                "wasi-sdk/wasi-libc/fts/musl-fts/COPYING",
+            ] {
+                text.push_str(&format!("\n\n{name}\n\n"));
+                text.push_str(&String::from_utf8(read(&base.join(name), 256 * 1024)?)?);
+                ensure!(text.len() <= 256 * 1024, "C# runtime notice size limit");
+            }
+            notices.insert("CSHARP-RUNTIME-NOTICES.txt".into(), text);
+        }
         if matches!(self.compiler, Compiler::Goose) {
             let path = self
                 .script
@@ -302,20 +333,14 @@ impl Toolchain {
         Ok(notices)
     }
 
-    #[allow(clippy::too_many_arguments)]
-    pub(super) fn compile(
+    fn snapshot_inputs(
         &self,
         root: &Path,
         unit: &Unit,
         source: &Path,
-        scratch: &Path,
-        cache: &Path,
-        resolve: &Resolve,
-        world: WorldId,
         files: &mut BTreeMap<String, String>,
         total: &mut u64,
-        commands: &mut Vec<Value>,
-    ) -> Result<Vec<u8>> {
+    ) -> Result<(Vec<PathBuf>, PathBuf)> {
         let project = unit
             .project
             .as_ref()
@@ -338,7 +363,10 @@ impl Toolchain {
             }
             if absolute.is_dir() {
                 ensure!(
-                    matches!(self.compiler, Compiler::Java | Compiler::Kotlin),
+                    matches!(
+                        self.compiler,
+                        Compiler::Java | Compiler::Kotlin | Compiler::Csharp
+                    ),
                     "source entrypoint must be a file"
                 );
                 directories.insert(absolute.clone());
@@ -361,6 +389,100 @@ impl Toolchain {
             Some(project) => source.join(project.strip_prefix(root)?),
             None => common_parent(&sources)?,
         };
+        Ok((sources, module_root))
+    }
+
+    /// Roslyn discovers the API from the same bounded project snapshot as emission.
+    pub(super) fn discover_csharp(
+        &self,
+        root: &Path,
+        unit: &Unit,
+    ) -> Result<(String, BTreeMap<String, String>)> {
+        ensure!(
+            matches!(self.compiler, Compiler::Csharp),
+            "C# discovery toolchain"
+        );
+        validate(self.compiler, unit)?;
+        let stage = tempfile::tempdir()?;
+        let source = stage.path().join("source");
+        let cache = stage.path().join("cache");
+        fs::create_dir(&source)?;
+        fs::create_dir(&cache)?;
+        let mut files = BTreeMap::new();
+        let mut total = 0;
+        let (sources, module_root) =
+            self.snapshot_inputs(root, unit, &source, &mut files, &mut total)?;
+        let output = stage.path().join("api.wit");
+        let mut command = Command::new(&self.python.path);
+        command
+            .arg(&self.script.path)
+            .args(&sources)
+            .arg("--discover")
+            .arg("--output")
+            .arg(&output)
+            .arg("--project-root")
+            .arg(&module_root);
+        if let Some(entry) = &unit.entry {
+            command.arg("--entry").arg(entry);
+        }
+        let packages = module_root.join("packages");
+        if packages.is_dir() {
+            command.arg("--package-dir").arg(packages);
+        }
+        command
+            .current_dir(&source)
+            .env_clear()
+            .env("PATH", std::env::var_os("PATH").unwrap_or_default())
+            .env("HOME", &cache)
+            .env("XDG_CACHE_HOME", &cache)
+            .env("PYTHONDONTWRITEBYTECODE", "1")
+            .env("TMPDIR", stage.path())
+            .envs(&self.environment)
+            .stdin(Stdio::null());
+        if let Some(path) = std::env::var_os("WISP_NATIVE_TOOL_ATTEMPTS") {
+            command.env("WISP_NATIVE_TOOL_ATTEMPTS", path);
+        }
+        let result = command
+            .output()
+            .context("discovering C# public API in Wasm")?;
+        ensure!(
+            result.status.success(),
+            "C# API discovery failed: {}{}",
+            String::from_utf8_lossy(&result.stdout),
+            String::from_utf8_lossy(&result.stderr)
+        );
+        ensure!(
+            digest(&read(&self.script.path, MAX_SOURCE)?) == self.script.sha256,
+            "compiler adapter changed during discovery"
+        );
+        let receipt: Value =
+            serde_json::from_slice(&read(&stage.path().join("api.wit.build.json"), MAX_SOURCE)?)?;
+        ensure!(
+            receipt["mode"] == "discover" && receipt["sourceCompilationWasmHosted"] == true,
+            "C# compiler did not report Wasm API discovery"
+        );
+        let api = receipt["api"]
+            .as_str()
+            .context("C# discovery declarations")?
+            .to_owned();
+        Ok((api, files))
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn compile(
+        &self,
+        root: &Path,
+        unit: &Unit,
+        source: &Path,
+        scratch: &Path,
+        cache: &Path,
+        resolve: &Resolve,
+        world: WorldId,
+        files: &mut BTreeMap<String, String>,
+        total: &mut u64,
+        commands: &mut Vec<Value>,
+    ) -> Result<Vec<u8>> {
+        let (sources, module_root) = self.snapshot_inputs(root, unit, source, files, total)?;
         let wit = scratch.join("world.wit");
         write(&wit, world_text(resolve, world)?)?;
         let output = scratch.join("output.wasm");
@@ -383,6 +505,24 @@ impl Toolchain {
                     "--module-root".into(),
                     module_root.to_string_lossy().into_owned(),
                 ]);
+                wit_args(&mut argv, &wit, resolve, world, false);
+            }
+            Compiler::Csharp => {
+                argv.extend([
+                    "--project-root".into(),
+                    module_root.to_string_lossy().into_owned(),
+                ]);
+                if let Some(entry) = &unit.entry {
+                    argv.extend(["--entry".into(), entry.clone()]);
+                }
+                // Offline packages must be part of the snapshotted project.
+                let packages = module_root.join("packages");
+                if packages.is_dir() {
+                    argv.extend([
+                        "--package-dir".into(),
+                        packages.to_string_lossy().into_owned(),
+                    ]);
+                }
                 wit_args(&mut argv, &wit, resolve, world, false);
             }
             Compiler::Bend => {
@@ -434,7 +574,7 @@ impl Toolchain {
                         "entry is only supported by the legacy scalar Python adapter"
                     );
                     wit_args(&mut argv, &wit, resolve, world, false);
-                    if project.is_some() {
+                    if unit.project.is_some() {
                         argv.extend([
                             "--package-root".into(),
                             module_root.to_string_lossy().into_owned(),
@@ -465,6 +605,9 @@ impl Toolchain {
             .env("TMPDIR", scratch)
             .envs(&self.environment)
             .stdin(Stdio::null());
+        if matches!(self.compiler, Compiler::Csharp) {
+            command.env("WISP_CSHARP_CACHE", cache.join("csharp"));
+        }
         if let Some(path) = std::env::var_os("WISP_NATIVE_TOOL_ATTEMPTS") {
             command.env("WISP_NATIVE_TOOL_ATTEMPTS", path);
         }
@@ -576,6 +719,7 @@ fn source_extension(compiler: Compiler, path: &Path) -> bool {
         Compiler::Javascript | Compiler::Typescript => {
             matches!(extension, Some("js" | "mjs" | "jsx" | "ts" | "mts" | "tsx"))
         }
+        Compiler::Csharp => matches!(extension, Some("cs" | "csproj")),
         Compiler::Python => extension == Some("py"),
         Compiler::Grain => extension == Some("gr"),
         Compiler::Bend => extension == Some("bend"),
@@ -608,6 +752,7 @@ fn snapshot(
         if name.starts_with('.')
             || name == "node_modules" && !javascript
             || matches!(name, "target" | "dist" | "build" | "work") && !in_dependency
+            || matches!(compiler, Compiler::Csharp) && matches!(name, "bin" | "obj")
             || matches!(name, "__pycache__" | "zig-out")
         {
             continue;
@@ -800,6 +945,17 @@ mod tests {
         let mut zig = unit(Compiler::Zig, "main.zig");
         zig.sources.push("other.zig".into());
         assert!(validate(Compiler::Zig, &zig).is_err());
+        let mut csharp = unit(Compiler::Csharp, "add.cs");
+        assert!(validate(Compiler::Csharp, &csharp).is_ok());
+        csharp.entry = Some("Example.Calculator".into());
+        assert!(validate(Compiler::Csharp, &csharp).is_ok());
+        csharp.entry = None;
+        csharp.sources.push("helper.cs".into());
+        assert!(validate(Compiler::Csharp, &csharp).is_ok());
+        assert!(source_extension(
+            Compiler::Csharp,
+            Path::new("Library.csproj")
+        ));
     }
 
     #[test]
@@ -842,6 +998,7 @@ mod tests {
             (Compiler::Goose, "main.goose"),
             (Compiler::Bend, "main.bend"),
             (Compiler::Swift, "main.swift"),
+            (Compiler::Csharp, "add.cs"),
             (Compiler::Java, "Main.java"),
             (Compiler::Kotlin, "Main.kt"),
         ] {
@@ -860,6 +1017,15 @@ mod tests {
                 write(
                     root.join("node_modules/local-package/dist/index.js"),
                     "export const value = 7;",
+                )
+                .unwrap();
+            }
+            if matches!(compiler, Compiler::Csharp) {
+                write(root.join("bin/old.dll"), "old build").unwrap();
+                write(root.join("obj/Generated.cs"), "old generated source").unwrap();
+                write(
+                    root.join("packages/Portable.1.0.0.nupkg"),
+                    "offline dependency",
                 )
                 .unwrap();
             }
@@ -898,12 +1064,15 @@ mod tests {
             let mut total = 0;
             let mut commands = Vec::new();
             let mut source_unit = unit(compiler, filename);
-            if matches!(compiler, Compiler::Python) {
+            if matches!(compiler, Compiler::Python | Compiler::Csharp) {
                 source_unit.project = Some(".".into());
             }
             if matches!(compiler, Compiler::Javascript | Compiler::Typescript) {
                 source_unit.javascript_engine = Some(JavascriptEngine::Starlingmonkey);
                 source_unit.typecheck = true;
+            }
+            if matches!(compiler, Compiler::Csharp) {
+                source_unit.entry = Some("Example.Api".into());
             }
             let bytes = toolchain
                 .compile(
@@ -935,6 +1104,19 @@ mod tests {
                 assert_eq!(arguments[engine + 1], "starlingmonkey");
             }
             assert_eq!(commands[0]["status"], 0);
+            if matches!(compiler, Compiler::Csharp) {
+                let arguments = commands[0]["arguments"].as_array().unwrap();
+                assert!(arguments.iter().any(|value| value == "--wit"));
+                assert!(arguments.iter().any(|value| value == "--world"));
+                assert!(arguments.iter().any(|value| value == "--project-root"));
+                assert!(arguments.iter().any(|value| value == "--entry"));
+                assert!(arguments.iter().any(|value| value == "Example.Api"));
+                assert!(arguments.iter().any(|value| value == "--package-dir"));
+                assert!(files.contains_key("packages/Portable.1.0.0.nupkg"));
+                assert!(!files.contains_key("bin/old.dll"));
+                assert!(!files.contains_key("obj/Generated.cs"));
+                assert!(!arguments.iter().any(|value| value == "--component"));
+            }
             if matches!(compiler, Compiler::Python) {
                 let arguments = commands[0]["arguments"].as_array().unwrap();
                 let index = arguments

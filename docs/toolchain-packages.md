@@ -75,10 +75,10 @@ prefix. The default is `$XDG_DATA_HOME/wisp/toolchains`, or
 `$HOME/.local/share/wisp/toolchains` when `XDG_DATA_HOME` is unset. Explicit
 project tool paths and existing `WISP_*` overrides take precedence. Installed
 Clang, Go, Rust, Zig, AssemblyScript, Nim, JavaScript, TypeScript, Python,
-Grain, Bend 2, Goose, Swift, Java and Kotlin resolve their selected compiler packages without a
+Grain, Bend 2, Goose, Swift, C#, Java and Kotlin resolve their selected compiler packages without a
 `wisp-buildtools` source checkout. TypeScript shares the JavaScript package.
 Install each compiler's runtime dependency packages too. Zig, Nim and Goose use Clang
-and LLVM; JavaScript, Python and Grain use wasm-tools; Swift uses llvm-swift and
+and LLVM; JavaScript, Python, C# and Grain use wasm-tools; Swift uses llvm-swift and
 wasm-tools. Java and Kotlin use jvm and teavm, whose C backend also needs Clang,
 LLVM and wasm-tools. Installing a compiler bundle does not fetch dependencies.
 Bend uses the JavaScript and wasm-tools packages and Wasmtime Python Component
