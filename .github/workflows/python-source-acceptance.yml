@@ -70,6 +70,10 @@ jobs:
           findmnt -T "$RUNNER_TEMP"
           mkdir -p .tools/python-source/scratch
           echo "TMPDIR=$PWD/.tools/python-source/scratch" >> "$GITHUB_ENV"
+      - name: Install verified upstream binding generator
+        run: |
+          python3 tools/upstream-bindings/setup.py --out .tools/upstream-bindings
+          echo "WISP_WIT_BINDGEN=$PWD/.tools/upstream-bindings/wit-bindgen" >> "$GITHUB_ENV"
       - name: Build CLI and check Python integration paths
         run: |
           rustup toolchain install 1.98.1 --profile minimal
