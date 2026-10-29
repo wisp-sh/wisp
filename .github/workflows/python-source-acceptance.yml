@@ -68,8 +68,8 @@ jobs:
           df -h . "$RUNNER_TEMP"
           df -i .
           findmnt -T "$RUNNER_TEMP"
-          mkdir -p .scratch/python-source
-          echo "TMPDIR=$PWD/.scratch/python-source" >> "$GITHUB_ENV"
+          mkdir -p .tools/python-source/scratch
+          echo "TMPDIR=$PWD/.tools/python-source/scratch" >> "$GITHUB_ENV"
       - name: Build CLI and check Python integration paths
         run: |
           rustup toolchain install 1.98.1 --profile minimal
