@@ -50,6 +50,10 @@ def main():
         return path.read_text().strip()
     cli = ROOT/'target/debug/wisp'
     installed = Path(env['WISP_OCAML_TOOLCHAIN'])
+    for tool in ('cargo','rustc','node','npm'):
+        assert shutil.which(tool, path=env['PATH']), f'installed acceptance PATH is missing {tool}'
+    report['consumerTools']={tool:shutil.which(tool,path=env['PATH']) for tool in ('cargo','rustc','node','npm')}
+    (out/'result.json').write_text(json.dumps(report,indent=2)+'\n')
     guard = out/'guard'; guard.mkdir()
     attempts = out/'native-attempts.txt'; attempts.touch()
     for name in ('ocaml','ocamlc','ocamlrun','ocamlopt','opam','dune','gcc','cc','clang','wasm-ld'):

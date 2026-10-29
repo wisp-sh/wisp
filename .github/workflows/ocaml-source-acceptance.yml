@@ -113,7 +113,7 @@ jobs:
         run: |
           source "$RUNNER_TEMP/ocaml/environment.sh"
           sudo --preserve-env unshare --net --setuid "$(id -u)" --setgid "$(id -g)" \
-            python3 tests/ocaml/acceptance.py --out "$RUNNER_TEMP/ocaml" --buildtools "$PWD/.tools/wisp-buildtools"
+            env PATH="$PATH" python3 tests/ocaml/acceptance.py --out "$RUNNER_TEMP/ocaml" --buildtools "$PWD/.tools/wisp-buildtools"
       - name: Retain bounded acceptance evidence
         if: always()
         env:
