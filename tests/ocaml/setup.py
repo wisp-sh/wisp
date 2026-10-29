@@ -91,6 +91,11 @@ def main():
             _, value = shlex.split(line); key, path = value.split('=',1); env[key] = path
         env['WISP_WORKER'] = str(ROOT/'target/debug/wisp-worker')
     env['WISP_OCAML_WASMTIME'] = runtime_host
+    # The candidate worker configures caching before engine startup. Keep its
+    # persistent cache outside the source inventory and carry it into the
+    # network-isolated acceptance process.
+    env['XDG_CACHE_HOME'] = str(out/'worker-cache')
+    Path(env['XDG_CACHE_HOME']).mkdir()
     # Record exact installed adapter and compiler bytes used by acceptance.
     selected = Path(env['WISP_OCAML_TOOLCHAIN'])
     assert selected.is_relative_to(prefix)
@@ -104,9 +109,9 @@ def main():
     if not args.flat_install:
         report['wispSha256'] = digest(cli)
     (out/'setup.json').write_text(json.dumps(report,indent=2)+'\n')
-    (out/'environment.json').write_text(json.dumps({k:v for k,v in env.items() if k.startswith(('WISP_','CARGO_')) or k=='PATH'},indent=2)+'\n')
+    (out/'environment.json').write_text(json.dumps({k:v for k,v in env.items() if k.startswith(('WISP_','CARGO_')) or k in ('PATH','XDG_CACHE_HOME')},indent=2)+'\n')
     (out/'environment.sh').write_text('\n'.join('export '+k+'='+shlex.quote(v) for k,v in env.items()
-                                        if k.startswith(('WISP_','CARGO_')) or k=='PATH')+'\n')
+                                        if k.startswith(('WISP_','CARGO_')) or k in ('PATH','XDG_CACHE_HOME'))+'\n')
 
 
 if __name__ == '__main__': main()
