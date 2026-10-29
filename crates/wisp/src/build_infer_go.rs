@@ -201,10 +201,11 @@ fn integer_constant(
     source: &str,
     iota: i128,
     constants: &BTreeMap<String, i128>,
+    declarations: &BTreeMap<String, Declaration>,
     depth: usize,
 ) -> Result<i128> {
     ensure!(depth < 32, "Go enum constant expression depth limit");
-    let recurse = |n| integer_constant(n, source, iota, constants, depth + 1);
+    let recurse = |n| integer_constant(n, source, iota, constants, declarations, depth + 1);
     Ok(match node.kind() {
         "iota" => iota,
         "identifier" => *constants
@@ -226,6 +227,17 @@ fn integer_constant(
             i128::from_str_radix(digits, radix).context("Go enum integer literal limit")?
         }
         "parenthesized_expression" => recurse(node.named_child(0).context("Go enum parentheses")?)?,
+        "call_expression" | "type_conversion_expression" => {
+            let (ty, operand) = constant_conversion(node, source)?;
+            let base = integer_base(ty, declarations, 0)
+                .context("unsupported Go enum constant conversion")?;
+            let value = recurse(operand)?;
+            ensure!(
+                enum_range(base, value),
+                "Go enum constant conversion exceeds its target Go integer type"
+            );
+            value
+        }
         "unary_expression" => {
             let value = recurse(child(node, "operand")?)?;
             match text(child(node, "operator")?, source) {
@@ -259,6 +271,10 @@ fn integer_base<'a>(
     if depth >= 32 {
         return None;
     }
+    let name = name.trim();
+    if let Some(inner) = name.strip_prefix('(').and_then(|s| s.strip_suffix(')')) {
+        return integer_base(inner, declarations, depth + 1);
+    }
     match name {
         "int" | "int8" | "int16" | "int32" | "int64" | "rune" | "uint" | "uint8" | "uint16"
         | "uint32" | "uint64" | "byte" => Some(name),
@@ -275,13 +291,210 @@ fn enum_range(base: &str, value: i128) -> bool {
     match base {
         "int8" => i8::try_from(value).is_ok(),
         "int16" => i16::try_from(value).is_ok(),
-        "int32" | "int" | "rune" => i32::try_from(value).is_ok(),
-        "int64" => i64::try_from(value).is_ok(),
+        "int32" | "rune" => i32::try_from(value).is_ok(),
+        // Go's Wasm target uses 64-bit int/uint, matching scalar inference.
+        "int64" | "int" => i64::try_from(value).is_ok(),
         "uint8" | "byte" => u8::try_from(value).is_ok(),
         "uint16" => u16::try_from(value).is_ok(),
-        "uint32" | "uint" => u32::try_from(value).is_ok(),
-        "uint64" => u64::try_from(value).is_ok(),
+        "uint32" => u32::try_from(value).is_ok(),
+        "uint64" | "uint" => u64::try_from(value).is_ok(),
         _ => false,
+    }
+}
+
+fn constant_conversion<'a>(node: Node<'a>, source: &'a str) -> Result<(&'a str, Node<'a>)> {
+    if node.kind() == "type_conversion_expression" {
+        return Ok((text(child(node, "type")?, source), child(node, "operand")?));
+    }
+    let mut ty = child(node, "function")?;
+    while ty.kind() == "parenthesized_expression" {
+        ty = ty.named_child(0).context("Go constant conversion type")?;
+    }
+    ensure!(
+        ty.kind() == "identifier",
+        "unsupported Go constant conversion type"
+    );
+    let arguments = child(node, "arguments")?;
+    let arguments = arguments
+        .named_children(&mut arguments.walk())
+        .filter(|n| n.kind() != "comment")
+        .collect::<Vec<_>>();
+    ensure!(
+        arguments.len() == 1,
+        "unsupported Go constant call; expected a type conversion"
+    );
+    Ok((text(ty, source), arguments[0]))
+}
+
+// Resolve true aliases to the defined type, without erasing defined integer
+// types such as Mode. Conversions through `type Alias = Mode` belong to Mode.
+fn constant_type_name(
+    name: &str,
+    declarations: &BTreeMap<String, Declaration>,
+    named: &BTreeSet<String>,
+    depth: usize,
+) -> Result<String> {
+    ensure!(depth < 32, "Go constant type expansion limit");
+    let name = name.trim();
+    if let Some(inner) = name.strip_prefix('(').and_then(|s| s.strip_suffix(')')) {
+        return constant_type_name(inner, declarations, named, depth + 1);
+    }
+    if named.contains(name) {
+        return Ok(name.into());
+    }
+    if let Some(Declaration::Alias(target)) = declarations.get(name) {
+        return constant_type_name(target, declarations, named, depth + 1);
+    }
+    // The predeclared byte and rune names are aliases too. Resolve them only
+    // after local declarations, which can shadow the predeclared names.
+    // Imported and other scalar types may occur in private constants.
+    Ok(match name {
+        "byte" => "uint8",
+        "rune" => "int32",
+        _ => name,
+    }
+    .into())
+}
+
+fn expression_type(
+    node: Node<'_>,
+    source: &str,
+    constants: &BTreeMap<String, Option<String>>,
+    declarations: &BTreeMap<String, Declaration>,
+    named: &BTreeSet<String>,
+    depth: usize,
+) -> Result<Option<String>> {
+    ensure!(depth < 32, "Go constant type expression depth limit");
+    let recurse = |n| expression_type(n, source, constants, declarations, named, depth + 1);
+    Ok(match node.kind() {
+        // All local constants have been resolved first. A name from a dot
+        // import cannot have a locally defined enum type.
+        "identifier" => constants.get(text(node, source)).cloned().flatten(),
+        "iota"
+        | "int_literal"
+        | "float_literal"
+        | "imaginary_literal"
+        | "rune_literal"
+        | "interpreted_string_literal"
+        | "raw_string_literal"
+        | "true"
+        | "false" => None,
+        // An imported constant cannot have a locally defined enum type. Keep
+        // unrelated private constants such as time.Second out of enum inference.
+        "selector_expression" => None,
+        "parenthesized_expression" => {
+            recurse(node.named_child(0).context("Go constant parentheses")?)?
+        }
+        "unary_expression" => recurse(child(node, "operand")?)?,
+        "binary_expression" => {
+            let left = recurse(child(node, "left")?)?;
+            let right = recurse(child(node, "right")?)?;
+            match text(child(node, "operator")?, source) {
+                // Go shifts retain only the left operand's type; comparisons
+                // produce an untyped boolean even when their operands are typed.
+                "<<" | ">>" => left,
+                "==" | "!=" | "<" | "<=" | ">" | ">=" => None,
+                _ => {
+                    ensure!(
+                        left.is_none() || right.is_none() || left == right,
+                        "Go constant operands have different types"
+                    );
+                    left.or(right)
+                }
+            }
+        }
+        "call_expression" | "type_conversion_expression" => {
+            if node.kind() == "call_expression" {
+                let mut function = child(node, "function")?;
+                while function.kind() == "parenthesized_expression" {
+                    function = function.named_child(0).context("Go constant function")?;
+                }
+                if function.kind() == "selector_expression" {
+                    // Imported conversions and unsafe.Sizeof/Alignof/Offsetof
+                    // also cannot produce a locally defined enum type.
+                    return Ok(None);
+                }
+                let name = text(function, source);
+                if !declarations.contains_key(name) {
+                    match name {
+                        "len" | "cap" | "complex" | "real" | "imag" => return Ok(None),
+                        "min" | "max" => {
+                            let arguments = child(node, "arguments")?;
+                            let mut ty = None;
+                            for argument in arguments
+                                .named_children(&mut arguments.walk())
+                                .filter(|n| n.kind() != "comment")
+                            {
+                                let next = recurse(argument)?;
+                                ensure!(
+                                    ty.is_none() || next.is_none() || ty == next,
+                                    "Go constant operands have different types"
+                                );
+                                ty = ty.or(next);
+                            }
+                            return Ok(ty);
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            let (ty, _) = constant_conversion(node, source)?;
+            Some(constant_type_name(ty, declarations, named, 0)?)
+        }
+        _ => bail!(
+            "unsupported Go constant type expression; use literals, named constants, arithmetic or conversions"
+        ),
+    })
+}
+
+#[derive(Clone)]
+struct Constant<'a> {
+    name: String,
+    explicit_type: Option<String>,
+    expression: Node<'a>,
+    source: &'a str,
+    iota: i128,
+}
+
+// Order dependencies before evaluating, but retain declaration order for WIT
+// cases. Package constants may refer to later declarations in any source file.
+struct ConstantOrder<'a> {
+    definitions: &'a [Constant<'a>],
+    names: BTreeMap<String, usize>,
+    states: Vec<u8>,
+    order: Vec<usize>,
+    remaining: usize,
+}
+impl ConstantOrder<'_> {
+    fn visit(&mut self, index: usize, depth: usize) -> Result<()> {
+        ensure!(depth < 32, "Go constant dependency depth limit");
+        ensure!(self.states[index] != 1, "cyclic Go constant dependency");
+        if self.states[index] == 2 {
+            return Ok(());
+        }
+        self.states[index] = 1;
+        let definition = self.definitions[index].clone();
+        self.expression(definition.expression, definition.source, depth + 1)?;
+        self.states[index] = 2;
+        self.order.push(index);
+        Ok(())
+    }
+
+    fn expression(&mut self, node: Node<'_>, source: &str, depth: usize) -> Result<()> {
+        ensure!(
+            depth < 32 && self.remaining > 0,
+            "Go constant expression expansion limit"
+        );
+        self.remaining -= 1;
+        if node.kind() == "identifier" {
+            if let Some(index) = self.names.get(text(node, source)).copied() {
+                self.visit(index, depth + 1)?;
+            }
+        }
+        for child in node.named_children(&mut node.walk()) {
+            self.expression(child, source, depth + 1)?;
+        }
+        Ok(())
     }
 }
 
@@ -292,10 +505,13 @@ fn infer_enums(
 ) -> Result<()> {
     let mut candidates: BTreeMap<String, Vec<(String, i128)>> = BTreeMap::new();
     let mut invalid: BTreeMap<String, String> = BTreeMap::new();
-    let mut constants = BTreeMap::new();
-    let mut constant_types: BTreeMap<String, String> = BTreeMap::new();
-    for (_, source) in sources {
-        let tree = parse(source, true)?;
+    let trees = sources
+        .iter()
+        .map(|(_, source)| parse(source, true))
+        .collect::<Result<Vec<_>>>()?;
+    let mut definitions = Vec::new();
+    let mut names = BTreeMap::new();
+    for ((_, source), tree) in sources.iter().zip(&trees) {
         for declaration in tree
             .root_node()
             .named_children(&mut tree.root_node().walk())
@@ -335,49 +551,94 @@ fn infer_enums(
                     "Go constant name/value count differs"
                 );
                 for (name, expression) in names.into_iter().zip(values) {
-                    let inferred_type = if expression.kind() == "identifier" {
-                        constant_types.get(text(expression, source)).cloned()
-                    } else {
-                        None
-                    };
-                    let ty = explicit_type.as_ref().or(inferred_type.as_ref());
-                    let value =
-                        integer_constant(expression, source, ordinal as i128, &constants, 0);
-                    if name != "_" {
-                        if let Ok(value) = &value {
-                            constants.insert(name.clone(), *value);
-                        }
-                        if let Some(ty) = ty {
-                            constant_types.insert(name.clone(), ty.clone());
-                        }
-                    }
-                    let Some(ty) = ty.filter(|ty| named.contains(*ty)) else {
-                        continue;
-                    };
-                    if name == "_" {
-                        continue;
-                    }
-                    let Some(base) = integer_base(ty, &types.declarations, 0) else {
-                        // String and bool typed constants do not turn aliases
-                        // into integer enums.
-                        continue;
-                    };
-                    match value {
-                        Ok(value) if enum_range(base, value) => candidates
-                            .entry(ty.clone())
-                            .or_default()
-                            .push((name, value)),
-                        Ok(_) => {
-                            invalid.insert(
-                                ty.clone(),
-                                "enum constant exceeds its target Go integer type".into(),
-                            );
-                        }
-                        Err(error) => {
-                            invalid.insert(ty.clone(), error.to_string());
-                        }
-                    }
+                    ensure!(definitions.len() < 8192, "Go constant declaration limit");
+                    definitions.push(Constant {
+                        name,
+                        explicit_type: explicit_type.clone(),
+                        expression,
+                        source,
+                        iota: ordinal as i128,
+                    });
                 }
+            }
+        }
+    }
+    for (index, definition) in definitions.iter().enumerate() {
+        if definition.name != "_" {
+            ensure!(
+                names.insert(definition.name.clone(), index).is_none(),
+                "duplicate Go constant declaration {}",
+                definition.name
+            );
+        }
+    }
+    let mut dependencies = ConstantOrder {
+        definitions: &definitions,
+        names,
+        states: vec![0; definitions.len()],
+        order: Vec::new(),
+        remaining: 65536,
+    };
+    for index in 0..definitions.len() {
+        dependencies.visit(index, 0)?;
+    }
+    let mut constants = BTreeMap::new();
+    let mut constant_types = BTreeMap::new();
+    let mut evaluated = BTreeMap::new();
+    for index in dependencies.order {
+        let definition = &definitions[index];
+        let ty = if let Some(ty) = &definition.explicit_type {
+            Some(constant_type_name(ty, &types.declarations, named, 0)?)
+        } else {
+            expression_type(
+                definition.expression,
+                definition.source,
+                &constant_types,
+                &types.declarations,
+                named,
+                0,
+            )?
+        };
+        let value = integer_constant(
+            definition.expression,
+            definition.source,
+            definition.iota,
+            &constants,
+            &types.declarations,
+            0,
+        );
+        if definition.name != "_" {
+            constant_types.insert(definition.name.clone(), ty.clone());
+            if let Ok(value) = &value {
+                constants.insert(definition.name.clone(), *value);
+            }
+        }
+        evaluated.insert(index, (ty, value));
+    }
+    for (index, definition) in definitions.iter().enumerate() {
+        let (ty, value) = evaluated.remove(&index).context("evaluated Go constant")?;
+        let Some(ty) = ty.filter(|ty| named.contains(ty)) else {
+            continue;
+        };
+        if definition.name == "_" {
+            continue;
+        }
+        let Some(base) = integer_base(&ty, &types.declarations, 0) else {
+            continue;
+        };
+        match value {
+            Ok(value) if enum_range(base, value) => candidates
+                .entry(ty)
+                .or_default()
+                .push((definition.name.clone(), value)),
+            Ok(_) => {
+                invalid.insert(
+                    ty,
+                    "enum constant exceeds its target Go integer type".into(),
+                );
+            }
+            Err(error) => {
+                invalid.insert(ty, error.to_string());
             }
         }
     }
@@ -680,6 +941,162 @@ mod tests {
     }
 
     #[test]
+    fn enum_expression_types_include_arithmetic_and_conversions() {
+        for expression in [
+            "ModeA + 1",
+            "1 + ModeA",
+            "(+(ModeA)) + 1",
+            "-(-ModeA - 1)",
+            "ModeA * 2",
+            "(ModeA + 3) / 2",
+            "(ModeA + 4) % 3",
+            "Mode(2)",
+            "(Mode)(2)",
+            "Alias(2)",
+        ] {
+            let functions = api(&format!("type Mode int16\ntype Alias = (Mode)\nconst ModeA Mode = 1\nconst ModeB = {expression}\nconst Same = ModeA == ModeB\nfunc Value() Mode {{return ModeB}}" )).unwrap();
+            let SourceKind::Enum(cases) = &functions[0].source_result.as_ref().unwrap().kind else {
+                panic!("{expression}")
+            };
+            assert_eq!(
+                cases.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(),
+                ["ModeA", "ModeB"],
+                "{expression}"
+            );
+            let wit = declarations(&functions).unwrap();
+            Resolve::default()
+                .push_str(
+                    "api.wit",
+                    &format!(
+                        "package test:go; interface api {{ {wit} }} world app {{ export api; }}"
+                    ),
+                )
+                .unwrap();
+        }
+    }
+
+    #[test]
+    fn unrelated_private_constants_do_not_block_scalar_or_enum_apis() {
+        let functions = api("import (\"time\"; \"unsafe\")\nconst timeout = time.Second\nconst typedTimeout time.Duration = time.Second\nconst length = len(\"x\")\nconst minimum = min(length, 2)\nconst size = unsafe.Sizeof(uint32(0))\nconst pointerWidth = uintptr(8)\nconst realPart = real(complex(1, 2))\nfunc Add(a,b uint32) uint32 {return a+b}").unwrap();
+        assert_eq!(functions[0].params, ["u32", "u32"]);
+        let functions = api("type Mode uint8\nconst ModeA Mode = 1\nconst private = len(\"x\")\nfunc Value() Mode {return ModeA}").unwrap();
+        assert!(matches!(
+            functions[0].source_result.as_ref().unwrap().kind,
+            SourceKind::Enum(_)
+        ));
+        // If a builtin's value participates in an enum, its unsupported value
+        // must reject that enum even though the builtin alone is unrelated.
+        assert!(api("type Mode uint8\nconst ModeA Mode = 1\nconst length = len(\"xx\")\nconst ModeB = ModeA + length\nfunc Value() Mode {return ModeB}").is_err());
+    }
+
+    #[test]
+    fn predeclared_aliases_share_constant_operand_types() {
+        for (alias, base) in [("byte", "uint8"), ("rune", "int32")] {
+            let functions = api(&format!(
+                "type Alias = {alias}\nconst a Alias = 1\nconst b {base} = 2\nconst sum = a + b\nconst smallest = min(a, b)\nconst largest = max({alias}(1), {base}(2))\ntype Mode uint8\nconst ModeA Mode = 1\nconst ModeB = Mode(sum)\nfunc Value() Mode {{return ModeB}}"
+            )).unwrap();
+            let SourceKind::Enum(cases) = &functions[0].source_result.as_ref().unwrap().kind else {
+                panic!("{alias}")
+            };
+            assert_eq!(
+                cases.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(),
+                ["ModeA", "ModeB"],
+                "{alias}"
+            );
+        }
+    }
+
+    #[test]
+    fn enum_dependencies_resolve_across_files_in_declaration_order() {
+        let project = tempfile::tempdir().unwrap();
+        fs::write(project.path().join("a.go"), "package main\ntype Mode uint8\nconst (\nModeB = ModeA + 1 + iota\nModeC\n)\nfunc Value() Mode {return ModeB}").unwrap();
+        fs::write(
+            project.path().join("z.go"),
+            "package main\nconst ModeA Mode = 1",
+        )
+        .unwrap();
+        let (functions, _) = functions(project.path()).unwrap();
+        let SourceKind::Enum(cases) = &functions[0].source_result.as_ref().unwrap().kind else {
+            panic!()
+        };
+        assert_eq!(
+            cases.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(),
+            ["ModeB", "ModeC", "ModeA"]
+        );
+    }
+
+    #[test]
+    fn unsupported_expressions_cannot_leave_partial_enums() {
+        for expression in [
+            "ModeA << 1",
+            "ModeA | 2",
+            "^ModeA",
+            "Mode(256) - 254",
+            "min(ModeA, Mode(2))",
+        ] {
+            let source = format!(
+                "type Mode uint8\nconst ModeA Mode = 1\nconst ModeB = {expression}\nfunc Value() Mode {{return ModeB}}"
+            );
+            assert!(api(&source).is_err(), "{expression}");
+        }
+        // A typed shift count does not give its type to the result.
+        let functions = api("type Mode uint8\nconst ModeA Mode = 1\nconst Other = 1 << ModeA\nfunc Value() Mode {return ModeA}").unwrap();
+        let SourceKind::Enum(cases) = &functions[0].source_result.as_ref().unwrap().kind else {
+            panic!()
+        };
+        assert_eq!(cases.len(), 1);
+    }
+
+    #[test]
+    fn go_wasm_enum_ranges_match_scalar_widths() {
+        for (base, min, max) in [
+            ("int", i64::MIN as i128, i64::MAX as i128),
+            ("uint", 0, u64::MAX as i128),
+            ("int32", i32::MIN as i128, i32::MAX as i128),
+            ("uint32", 0, u32::MAX as i128),
+        ] {
+            for value in [min, max] {
+                assert!(enum_range(base, value));
+                let functions = api(&format!("type Mode {base}\nconst ModeA Mode = {value}\nfunc Value() Mode {{return ModeA}}" )).unwrap();
+                assert!(matches!(
+                    functions[0].source_result.as_ref().unwrap().kind,
+                    SourceKind::Enum(_)
+                ));
+            }
+            for value in [min - 1, max + 1] {
+                assert!(!enum_range(base, value));
+                assert!(api(&format!("type Mode {base}\nconst ModeA Mode = {value}\nfunc Value() Mode {{return ModeA}}" )).is_err());
+            }
+        }
+        assert_eq!(
+            api("func Signed(value int) int {return value}").unwrap()[0].params,
+            ["s64"]
+        );
+        assert_eq!(
+            api("func Unsigned(value uint) uint {return value}").unwrap()[0].params,
+            ["u64"]
+        );
+    }
+
+    #[test]
+    fn constant_dependencies_and_expression_work_are_bounded() {
+        let error = api("type Mode uint8\nconst ModeA = ModeB\nconst ModeB Mode = ModeA\nfunc Value() Mode {return ModeA}").unwrap_err();
+        assert!(format!("{error:#}").contains("cyclic Go constant dependency"));
+        let mut source = "type Mode uint8\n".to_string();
+        for index in 0..40 {
+            source.push_str(&format!("const Mode{index} = Mode{} + 1\n", index + 1));
+        }
+        source.push_str("const Mode40 Mode = 1\nfunc Value() Mode {return Mode0}");
+        assert!(format!("{:#}", api(&source).unwrap_err()).contains("limit"));
+        let source = format!(
+            "type Mode uint8\nconst ModeA Mode = {}1{}\nfunc Value() Mode {{return ModeA}}",
+            "(".repeat(40),
+            ")".repeat(40)
+        );
+        assert!(format!("{:#}", api(&source).unwrap_err()).contains("limit"));
+    }
+
+    #[test]
     fn ambiguous_enums_and_recursive_optional_records_are_rejected() {
         for (source, expected) in [
             (
@@ -707,7 +1124,7 @@ mod tests {
     #[test]
     fn upstream_export_adapters_keep_ordinary_go_functions() {
         let project = tempfile::tempdir().unwrap();
-        let source = "package main\ntype Mode uint8\nconst (\nModeFast Mode=iota\nModeCareful\n)\ntype Batch struct {Labels []string; Selected *Mode; Modes []Mode}\nfunc Echo(value Batch) (Batch,error){return value,nil}\nfunc Choices(value []*Mode) []*Mode{return value}\nfunc main(){}\n";
+        let source = "package main\ntype Mode uint8\nconst (\nModeFast Mode=iota\nModeCareful\n)\nconst ModeThird = ModeCareful + 1\nconst ModeFourth = Mode(3)\ntype Batch struct {Labels []string; Selected *Mode; Modes []Mode}\nfunc Echo(value Batch) (Batch,error){return value,nil}\nfunc Choices(value []*Mode) []*Mode{return value}\nfunc Value() Mode {return ModeThird}\nfunc main(){}\n";
         fs::write(project.path().join("main.go"), source).unwrap();
         fs::write(
             project.path().join("go.mod"),
@@ -737,6 +1154,8 @@ mod tests {
         assert!(glue.contains("return witTypes.Err["));
         assert!(glue.contains("value == nil"));
         assert!(glue.contains("value.IsNone()"));
+        assert!(glue.contains("case (Mode)(ModeThird):"));
+        assert!(glue.contains("case (Mode)(ModeFourth):"));
         assert!(!glue.contains("\"example.org/inferred/export_test_go_inferred_api\""));
         assert!(!glue.contains("export_test_go_inferred_api."));
         assert!(!glue.contains("func main("));
