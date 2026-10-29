@@ -1,5 +1,31 @@
 use super::*;
 
+#[test]
+fn packaged_worker_manifest_matches_cargo_normalization() {
+    let metadata = crate::library_metadata::Metadata {
+        description: Some("C standard library inside a Wasm-hosted compiler build".into()),
+        license: Some("MIT".into()),
+        ..Default::default()
+    };
+    let original = cargo_manifest("demo-c-math", "0.1.0", &metadata, false, false, true).unwrap();
+    let expected = packaged_cargo_manifest("demo-c-math", &original).unwrap();
+    // Produced by Cargo 1.98.1's package command, not by Wisp's normalizer.
+    let actual: toml::Value = toml::from_str(include_str!(
+        "../tests/fixtures/cargo-worker-normalized.toml"
+    ))
+    .unwrap();
+    assert_eq!(expected, actual);
+    for (dependency, changed) in [("serde_json", "9"), ("tempfile", "4")] {
+        let mut forged = actual.clone();
+        forged["target"]["cfg(not(target_arch = \"wasm32\"))"]["dependencies"][dependency]["version"] =
+            changed.into();
+        assert_ne!(expected, forged);
+    }
+    let mut forged = actual.clone();
+    forged["package"]["build"] = true.into();
+    assert_ne!(expected, forged);
+}
+
 fn manifests() -> Vec<String> {
     let mut manifests = Vec::new();
     for wasi in [false, true] {
