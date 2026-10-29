@@ -166,6 +166,7 @@ pub(super) struct Contracts {
     pub worlds: BTreeMap<String, WorldId>,
     pub functions: BTreeMap<String, BTreeMap<String, Function>>,
     pub sources: BTreeMap<String, BTreeMap<String, String>>,
+    pub complete_sources: BTreeSet<String>,
     pub cpp_headers: BTreeMap<String, BTreeMap<String, String>>,
     pub notices: BTreeMap<String, String>,
 }
@@ -361,6 +362,7 @@ pub(super) fn generate(
     let mut functions = BTreeMap::new();
     let mut python_inferred = BTreeSet::new();
     let mut sources = BTreeMap::new();
+    let mut complete_sources = BTreeSet::new();
     let mut module_imports = Vec::new();
     let mut rust_imports = Vec::new();
     let mut wit = format!(
@@ -376,6 +378,29 @@ pub(super) fn generate(
         let compiler = unit
             .compiler
             .context("inferred source unit requires compiler")?;
+        if matches!(compiler, Compiler::Csharp)
+            && !unit
+                .sources
+                .iter()
+                .any(|path| root.join(path.with_extension("wit")).is_file())
+        {
+            let toolchain = super::adapters::Toolchain::load(root, &config.build.tools, compiler)?;
+            let (api, hashes) = toolchain.discover_csharp(root, unit)?;
+            complete_sources.insert(name.clone());
+            let interface = if source_units.len() == 1 {
+                "api".into()
+            } else {
+                format!("{}-api", wire_name(name)?)
+            };
+            unit.world = wire_name(name)?;
+            wit.push_str(&format!(
+                "interface %{interface} {{\n{api}}}\nworld %{} {{ export %{interface}; }}\n",
+                unit.world
+            ));
+            sources.insert(name.clone(), hashes);
+            functions.insert(name.clone(), BTreeMap::new());
+            continue;
+        }
         if compiler.is_adapter() {
             let (body, hashes) = if matches!(compiler, Compiler::Python) {
                 let (body, hashes, inferred) = adapters::python_contract(
@@ -646,6 +671,7 @@ pub(super) fn generate(
         worlds,
         functions,
         sources,
+        complete_sources,
         cpp_headers,
         notices,
     })
