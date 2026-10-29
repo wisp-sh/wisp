@@ -14,7 +14,7 @@ import tomllib
 from pathlib import Path, PurePosixPath
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from common import MAX_FILE, MAX_MANIFEST, NAME, fail, go_host, json_bytes, read_file, sha256, strict_json, wisp_origin
+from common import MAX_FILE, MAX_MANIFEST, NAME, claim_registry_names, fail, go_host, json_bytes, read_file, sha256, strict_json, wisp_origin
 from python_wheel import make_wheel
 
 TARGETS = {"npm", "cargo", "pypi", "go"}
@@ -47,6 +47,7 @@ def manifest(source):
         fail("declare between 1 and 32 packages")
     names = set()
     paths = set()
+    registry_names = set()
     for package in value["packages"]:
         if not isinstance(package, dict) or set(package) - {"name", "path", "targets", "summary"} or not {"name", "path", "targets"} <= set(package):
             fail("each package needs name, path, targets, and optional summary")
@@ -66,6 +67,7 @@ def manifest(source):
             fail("package path must identify a unique directory in the repository")
         paths.add(target)
         validate_targets(package["targets"])
+        claim_registry_names(package["targets"], registry_names)
     return value
 
 

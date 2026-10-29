@@ -3,7 +3,7 @@ mod values;
 use anyhow::{Context, Result, bail, ensure};
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use std::io::{BufRead, Read, Write};
-use wisp_worker_protocol::{MAX_FRAME, Request, VERSION, command::parse_run};
+use wisp_worker_protocol::{MAX_FRAME, Request, VERSION, client::Client, command::parse_run};
 
 async fn serve(allow_precompiled: bool) -> Result<()> {
     let mut worker = runtime::Worker::with_precompiled(allow_precompiled)?;
@@ -58,7 +58,18 @@ async fn main() {
             Some("run") => {
                 let allow_precompiled = args.get(1).is_some_and(|arg| arg == "--allow-precompiled");
                 let request = parse_run(&args[if allow_precompiled { 2 } else { 1 }..])?;
-                let response = runtime::Worker::with_precompiled(allow_precompiled)?.execute(request).await;
+                // Supervise a separate process, just like `wisp run`. Epochs do
+                // not interrupt suspended host futures, and an async timeout
+                // cannot preempt synchronous compilation. Client kills and reaps
+                // the worker on timeout, dropping every guest store and session.
+                let executable = std::env::current_exe()?;
+                let cache = std::env::var_os("XDG_CACHE_HOME").map(std::path::PathBuf::from);
+                let mut client = if allow_precompiled {
+                    Client::spawn_with_precompiled(&executable, cache.as_deref())?
+                } else {
+                    Client::spawn(&executable, cache.as_deref())?
+                };
+                let response = client.request(request)?;
                 std::io::stdout().write_all(&STANDARD.decode(response.stdout)?)?;
                 std::io::stderr().write_all(&STANDARD.decode(response.stderr)?)?;
                 for value in response.results {
