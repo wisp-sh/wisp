@@ -3,7 +3,7 @@ on:
   workflow_call:
     inputs:
       publish:
-        description: Publish release packages to their declared registries with trusted publishing
+        description: Publish npm/Cargo releases and enable caller-side PyPI trusted publishing
         type: boolean
         default: true
       wisp_url:
@@ -14,6 +14,16 @@ on:
         description: Host that deployment serves Go modules from
         type: string
         default: go.wisp.codes
+    outputs:
+      artifact_id:
+        description: Exact package artifact ID for this run and attempt
+        value: ${{ jobs.build.outputs.artifact_id }}
+      artifact_digest:
+        description: SHA-256 of the package artifact recorded with Wisp
+        value: ${{ jobs.build.outputs.artifact_digest }}
+      pypi:
+        description: True only for a recorded release with publish enabled and a PyPI target
+        value: ${{ jobs.record.outputs.pypi }}
 permissions: {}
 # The record step sends its OIDC token only to this origin, with it as the
 # audience, so a token issued for one deployment is useless to any other.
@@ -68,6 +78,8 @@ jobs:
     needs: build
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    outputs:
+      pypi: ${{ github.event_name == 'release' && inputs.publish && steps.plan.outputs.pypi == 'true' }}
     permissions:
       contents: read
       actions: read
@@ -89,6 +101,12 @@ jobs:
         with:
           artifact-id: ${{ needs.build.outputs.artifact_id }}
           artifact-digest: ${{ needs.build.outputs.artifact_digest }}
+      - name: Plan caller-side Python publication after recording
+        if: github.event_name == 'release' && inputs.publish
+        id: plan
+        uses: wisp-sh/wisp/.github/actions/library-publish@daef8b47ca7f4fd7bd828110c03509644a0a3dca
+        with:
+          command: plan
   publish:
     needs: [build, record]
     if: github.event_name == 'release' && inputs.publish
@@ -131,9 +149,5 @@ jobs:
           CARGO_REGISTRY_TOKEN: ${{ steps.crates.outputs.token }}
         with:
           command: cargo
-      - name: Publish Python wheels
-        if: steps.plan.outputs.pypi == 'true'
-        uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086
-        with:
-          packages-dir: ${{ runner.temp }}/wisp-wheels
-          skip-existing: true
+      # PyPI trusted publishing must run in a top-level caller job, after this
+      # reusable workflow succeeds. See docs/releases/library-workflow.md.

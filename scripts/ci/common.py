@@ -41,6 +41,25 @@ def sha256(data):
     return hashlib.sha256(data).hexdigest()
 
 
+def registry_identity(registry, name):
+    """Canonical identities used by the public registries, not display names."""
+    if registry == "pypi":
+        return re.sub(r"[-_.]+", "-", name).lower()
+    if registry == "cargo":
+        return name.lower().replace("_", "-")
+    return name
+
+
+def claim_registry_names(targets, seen):
+    """A logical package must have its own registry identity at every version."""
+    for registry in ("npm", "cargo", "pypi"):
+        if registry in targets:
+            key = (registry, registry_identity(registry, targets[registry]))
+            if key in seen:
+                fail(f"duplicate {registry} registry identity: {key[1]}")
+            seen.add(key)
+
+
 def https_url(value):
     if not isinstance(value, str):
         fail("expected an HTTPS URL")
