@@ -9,6 +9,7 @@ on:
       - 'crates/wisp/src/toolchain_install.rs'
       - 'examples/build-csharp/**'
       - 'tests/source-build/csharp.py'
+      - 'tests/source-build/test_csharp_acceptance.py'
       - '.github/workflows/csharp-acceptance.yml'
 permissions:
   contents: read
@@ -20,18 +21,29 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-      - name: Check acceptance driver syntax
-        run: python3 -c "import ast, pathlib; ast.parse(pathlib.Path('tests/source-build/csharp.py').read_text())"
+      - name: Check acceptance evidence collection
+        run: python3 -m unittest discover -s tests/source-build -p test_csharp_acceptance.py
   csharp:
     if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
     timeout-minutes: 180
+    permissions:
+      contents: read
+      statuses: write
     env:
       CARGO_BUILD_JOBS: '1'
       CARGO_INCREMENTAL: '0'
       PYTHONDONTWRITEBYTECODE: '1'
       RUSTUP_TOOLCHAIN: '1.98.1'
     steps:
+      - name: Report executed acceptance as pending on the tested commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api --silent --method POST "repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
+            -f state=pending -f context='C# executed acceptance' \
+            -f description='Compiler and installed consumers are running' \
+            -f target_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -137,3 +149,15 @@ jobs:
           path: evidence/csharp
           if-no-files-found: error
           retention-days: 7
+      - name: Report actual compiler and consumer acceptance result
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ACCEPTANCE_JOB_STATUS: ${{ job.status }}
+        run: |
+          state=failure
+          if [ "$ACCEPTANCE_JOB_STATUS" = success ]; then state=success; fi
+          gh api --silent --method POST "repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
+            -f state="$state" -f context='C# executed acceptance' \
+            -f description='Executed compiler and installed-consumer acceptance' \
+            -f target_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"

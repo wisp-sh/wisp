@@ -21,6 +21,14 @@ def digest(path):
         return hashlib.file_digest(stream, 'sha256').hexdigest()
 
 
+def logged_command(argv, *, cwd, environment, stdout, stderr, timeout=1800):
+    # Compiler diagnostics belong in evidence, not in the consumer's result.
+    with stdout.open('w') as out_stream, stderr.open('w') as err_stream:
+        result = subprocess.run(argv, cwd=cwd, env=environment, stdout=out_stream,
+                                stderr=err_stream, timeout=timeout)
+    return result.returncode, stdout.read_text().strip()
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--cli', type=Path, required=True)
@@ -38,6 +46,8 @@ def main():
     for name in ('WISP_CSHARP_TOOLCHAIN', 'WISP_WASM_TOOLS', 'WISP_WASM_TOOLS_TOOLCHAIN', 'WISP_PREVIEW1_ADAPTER'):
         environment.pop(name, None)
     environment['WISP_TOOLCHAIN_HOME'] = str(output / 'toolchains')
+    host_cache = output / 'host-cache'; host_cache.mkdir()
+    environment['XDG_CACHE_HOME'] = str(host_cache)
     report = {'complete': False, 'passed': False, 'commands': [], 'checks': [], 'cliSha256': digest(cli)}
 
     def save():
@@ -45,15 +55,16 @@ def main():
 
     def run(argv, *, cwd=ROOT, success=True, env=None):
         argv = list(map(str, argv)); index = len(report['commands'])
-        record = {'argv': argv, 'cwd': str(cwd), 'status': 'running'}
+        stdout, stderr = logs / f'{index:03}.log', logs / f'{index:03}.stderr.log'
+        record = {'argv': argv, 'cwd': str(cwd), 'status': 'running',
+                  'stdout': str(stdout), 'stderr': str(stderr)}
         report['commands'].append(record); save()
-        with (logs / f'{index:03}.log').open('w') as stream:
-            result = subprocess.run(argv, cwd=cwd, env=env or environment, stdout=stream,
-                                    stderr=subprocess.STDOUT, timeout=1800)
-        record['status'] = result.returncode; save()
-        if (result.returncode == 0) != success:
-            raise RuntimeError(f'command returned {result.returncode}: {argv}; see {logs / f"{index:03}.log"}')
-        return (logs / f'{index:03}.log').read_text().strip()
+        status, result = logged_command(argv, cwd=cwd, environment=env or environment,
+                                        stdout=stdout, stderr=stderr)
+        record['status'] = status; save()
+        if (status == 0) != success:
+            raise RuntimeError(f'command returned {status}: {argv}; see {stdout} and {stderr}')
+        return result
 
     save()
     try:
