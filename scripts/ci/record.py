@@ -17,7 +17,8 @@ from urllib.request import Request
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from build import go_module, repository_path, validate_targets
-from common import FILE, HTTP, MAX_FILE, MAX_MANIFEST, NAME, fail, https_url, json_bytes, read_file, sha256, strict_json, wisp_origin
+from common import FILE, HTTP, MAX_FILE, MAX_MANIFEST, NAME, claim_registry_names, fail, https_url, json_bytes, read_file, sha256, strict_json, wisp_origin
+from python_wheel import wheel_filename
 
 ALLOWED_FILES = {"component.wasm", "library-release.json", "rust.crate", "node.tgz", "cargo.crate", "npm.tgz", "go.zip", "go.mod", "go.info"}
 VERSION = re.compile(r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z.-]+)?\Z")
@@ -51,6 +52,8 @@ def load_artifacts(directory):
         fail("artifact manifest must contain 1 to 32 packages")
     files = {}
     names = set()
+    registry_names = set()
+    wheel_names = set()
     for package in packages:
         if not isinstance(package, dict) or not {"name", "path", "version", "targets", "files"} <= set(package) or set(package) - {"name", "path", "version", "targets", "files", "summary"}:
             fail("invalid artifact package fields")
@@ -72,6 +75,7 @@ def load_artifacts(directory):
         if go is not None and go != go_module(repository, name, version):
             fail("Go module path does not belong to this repository and version")
         validate_targets({**targets, **({"go": True} if go else {})})
+        claim_registry_names(targets, registry_names)
         if not isinstance(package["files"], list) or not 2 <= len(package["files"]) <= 16:
             fail("invalid package file count")
         folder = directory / "packages" / name
@@ -84,6 +88,12 @@ def load_artifacts(directory):
             filename = item["name"]
             if not isinstance(filename, str) or not FILE.fullmatch(filename) or (filename not in ALLOWED_FILES and not filename.endswith(".whl")):
                 fail("invalid artifact filename")
+            if filename.endswith(".whl"):
+                if filename in wheel_names:
+                    fail(f"duplicate wheel filename: {filename}")
+                wheel_names.add(filename)
+                if "pypi" not in targets or filename != wheel_filename(targets["pypi"], version):
+                    fail("wheel filename differs from the declared PyPI name or version")
             key = (name, filename)
             if key in files:
                 fail("duplicate artifact file")
