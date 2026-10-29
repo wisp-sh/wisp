@@ -24,7 +24,8 @@ permissions:
   actions: read
 concurrency:
   group: javascript-acceptance-${{ github.ref }}-${{ github.event_name }}
-  cancel-in-progress: true
+  # Preserve real compiler/consumer diagnostics when main integration queues a new head.
+  cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' }}
 env:
   CARGO_BUILD_JOBS: '1'
   CARGO_INCREMENTAL: '0'
