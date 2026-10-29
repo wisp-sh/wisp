@@ -11,7 +11,6 @@ import base64
 import hashlib
 import json
 import os
-import shutil
 import struct
 import subprocess
 import sys
@@ -23,7 +22,8 @@ from urllib.parse import quote
 from urllib.request import Request
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from common import HTTP, fail, read_file, sha256
+from common import HTTP, fail, read_file, registry_identity, sha256, strict_json
+from python_wheel import wheel_filename
 from record import load_artifacts
 
 USER_AGENT = "Wisp publish action (+https://wisp.codes)"
@@ -33,8 +33,15 @@ def registry_json(url):
     """Return parsed JSON, or None when the registry has no such version."""
     try:
         with HTTP.open(Request(url, headers={"User-Agent": USER_AGENT, "Accept": "application/json"}), timeout=60) as response:
-            return json.loads(response.read(64 * 1024 * 1024))
+            data = response.read(64 * 1024 * 1024 + 1)
+        if len(data) > 64 * 1024 * 1024:
+            fail("registry response exceeds limit")
+        value = strict_json(data)
+        if not isinstance(value, dict):
+            fail("invalid registry response")
+        return value
     except HTTPError as error:
+        error.close()
         if error.code == 404:
             return None
         raise
@@ -47,17 +54,73 @@ def packages(directory, registry):
             yield package, files
 
 
+def collect_wheels(entries, wheels):
+    """Create a fresh upload directory; never replace an existing wheel."""
+    names = [path.name for path, _ in entries]
+    if len(names) != len(set(names)):
+        fail("duplicate wheel filename in publication plan")
+    wheels.mkdir(parents=True, exist_ok=False)
+    for path, descriptor in entries:
+        data = read_file(path)
+        if len(data) != descriptor["size"] or sha256(data) != descriptor["sha256"]:
+            fail("wheel changed after verification")
+        with (wheels / path.name).open("xb") as handle:
+            handle.write(data)
+
+
 def plan(directory, wheels, output):
     manifest, files = load_artifacts(directory)
     selected = {registry: any(registry in package["targets"] for package in manifest["packages"]) for registry in ["npm", "cargo", "pypi"]}
-    wheels.mkdir(parents=True, exist_ok=False)
-    for (name, filename), (path, _) in files.items():
-        if filename.endswith(".whl"):
-            shutil.copyfile(path, wheels / filename)
+    collect_wheels([entry for (_, filename), entry in files.items() if filename.endswith(".whl")], wheels)
     with open(output, "a", encoding="utf-8") as handle:
         for registry, value in selected.items():
             handle.write(f"{registry}={'true' if value else 'false'}\n")
     return selected
+
+
+def prepare_pypi(directory, wheels, output):
+    """Stage missing wheels for the caller's PyPA action, without credentials.
+
+    PyPI's release JSON lists files under `urls`, not `releases`. Only an
+    exact filename with the admitted SHA-256 and size counts as published.
+    Metadata versions can differ in spelling, so they do not select files.
+    """
+    pending = []
+    for package, files in packages(directory, "pypi"):
+        name, version = package["targets"]["pypi"], package["version"]
+        filename = wheel_filename(name, version)
+        path, descriptor = files[(package["name"], filename)]
+        identity = registry_identity("pypi", name)
+        existing = registry_json(f"https://pypi.org/pypi/{quote(identity, safe='')}/{quote(version, safe='')}/json")
+        match = None
+        if existing is not None:
+            entries = existing.get("urls")
+            if not isinstance(entries, list):
+                fail("invalid PyPI release file list")
+            seen = set()
+            for entry in entries:
+                if not isinstance(entry, dict) or not isinstance(entry.get("filename"), str) or not entry["filename"] or entry["filename"] in seen:
+                    fail("invalid or duplicate PyPI release filename")
+                seen.add(entry["filename"])
+                if entry["filename"] == filename:
+                    match = entry
+        if match is not None:
+            digests = match.get("digests")
+            if not isinstance(digests, dict) or digests.get("sha256") != descriptor["sha256"] or type(match.get("size")) is not int or match["size"] != descriptor["size"]:
+                fail(f"PyPI already has {filename} with different bytes or missing integrity data")
+            if match.get("packagetype") != "bdist_wheel":
+                fail(f"PyPI returned an invalid file type for {filename}")
+            if match.get("yanked") is not False:
+                fail(f"PyPI file {filename} is yanked or has unknown yank status")
+            print(f"PyPI already has identical {filename}")
+        else:
+            pending.append((path, descriptor))
+    # Check every package before staging anything or declaring success. The
+    # upload action must keep skip-existing disabled to expose upload races.
+    collect_wheels(pending, wheels)
+    with open(output, "a", encoding="utf-8") as handle:
+        handle.write(f"pypi={'true' if pending else 'false'}\n")
+    return bool(pending)
 
 
 def publish_npm(directory):
@@ -144,17 +207,18 @@ def publish_cargo(directory):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=["plan", "npm", "cargo"])
+    parser.add_argument("command", choices=["plan", "npm", "cargo", "pypi"])
     parser.add_argument("--artifacts", required=True, type=Path)
     parser.add_argument("--wheels", type=Path)
     args = parser.parse_args()
     if args.artifacts.is_symlink():
         fail("artifact root cannot be a symlink")
     directory = args.artifacts.resolve()
-    if args.command == "plan":
+    if args.command in {"plan", "pypi"}:
         if not args.wheels:
-            fail("plan requires --wheels")
-        plan(directory, args.wheels, os.environ["GITHUB_OUTPUT"])
+            fail(f"{args.command} requires --wheels")
+        prepare = plan if args.command == "plan" else prepare_pypi
+        prepare(directory, args.wheels, os.environ["GITHUB_OUTPUT"])
     elif args.command == "npm":
         publish_npm(directory)
     else:

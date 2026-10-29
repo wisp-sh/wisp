@@ -12,7 +12,7 @@ import keyword
 import re
 import zipfile
 
-from common import fail, json_bytes
+from common import fail, json_bytes, registry_identity
 
 RUNTIME = '''"""Python bindings for a Wisp WebAssembly Component."""
 import threading
@@ -135,15 +135,21 @@ def generate_source(contract):
     return result.encode()
 
 
-def make_wheel(name, version, release, component, destination, notices=None, url=None):
+def wheel_filename(name, version):
     # Require stable SemVer. A prerelease needs explicit PEP 440 translation
     # rather than silently changing an immutable registry version.
     if not re.fullmatch(r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)", version):
         fail("PyPI currently requires a stable MAJOR.MINOR.PATCH package version")
     # The distribution and import names both come from the owner's PyPI name.
-    module = re.sub(r"[-_.]+", "_", name).lower()
+    module = registry_identity("pypi", name).replace("-", "_")
     if not module.isidentifier() or keyword.iskeyword(module):
         fail("the PyPI name must normalize to a Python import name")
+    return f"{module}-{version}-py3-none-any.whl"
+
+
+def make_wheel(name, version, release, component, destination, notices=None, url=None):
+    filename = wheel_filename(name, version)
+    module = filename.split("-", 1)[0]
     info = f"{module}-{version}.dist-info"
     metadata = release.get("metadata", {})
     description = metadata.get("description") or f"Wisp Component package {name}"
@@ -166,8 +172,8 @@ def make_wheel(name, version, release, component, destination, notices=None, url
         writer.writerow([path, "sha256=" + digest, len(data)])
     writer.writerow([f"{info}/RECORD", "", ""])
     files[f"{info}/RECORD"] = record.getvalue().encode()
-    target = destination / f"{module}-{version}-py3-none-any.whl"
-    with zipfile.ZipFile(target, "w", zipfile.ZIP_DEFLATED) as archive:
+    target = destination / filename
+    with zipfile.ZipFile(target, "x", zipfile.ZIP_DEFLATED) as archive:
         for path, data in sorted(files.items()):
             entry = zipfile.ZipInfo(path, (1980, 1, 1, 0, 0, 0))
             entry.compress_type = zipfile.ZIP_DEFLATED
