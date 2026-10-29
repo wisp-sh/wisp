@@ -103,6 +103,26 @@ fn ty(name: &str, compiler: Compiler) -> Result<Option<String>> {
             ),
         };
     }
+    if matches!(compiler, Compiler::Typescript) {
+        ensure!(
+            name.chars().filter(|ch| matches!(ch, '<' | '[')).count() <= 16,
+            "TypeScript list nesting exceeds the supported inference limit"
+        );
+        let element = name
+            .strip_suffix("[]")
+            .or_else(|| {
+                name.strip_prefix("Array<")
+                    .and_then(|s| s.strip_suffix('>'))
+            })
+            .or_else(|| {
+                name.strip_prefix("ReadonlyArray<")
+                    .and_then(|s| s.strip_suffix('>'))
+            });
+        if let Some(element) = element {
+            let element = ty(element, compiler)?.context("void cannot be a list element")?;
+            return Ok(Some(format!("list<{element}>")));
+        }
+    }
     let mapped = match name {
         "void" | "Void" | "Unit" => return Ok(None),
         "bool" | "boolean" | "Boolean" | "Bool" => "bool",
@@ -198,7 +218,10 @@ fn scalar_exports(source: &str, compiler: Compiler) -> Result<String> {
         Compiler::Goose => {
             r"(?m)^\s*export\s+fn\s+(?P<name>\w+)\s*\((?P<params>[^()]*)\)\s*(?:->\s*(?P<result>\w+)\s*)?\{"
         }
-        Compiler::Assemblyscript | Compiler::Typescript => {
+        Compiler::Typescript => {
+            r"(?m)^\s*export\s+function\s+(?P<name>\w+)\s*\((?P<params>[^()]*)\)\s*:\s*(?P<result>[\w<>\[\] ]+)\s*\{"
+        }
+        Compiler::Assemblyscript => {
             r"(?m)^\s*export\s+function\s+(?P<name>\w+)\s*\((?P<params>[^()]*)\)\s*:\s*(?P<result>[\w]+)\s*\{"
         }
         Compiler::Bend => {
@@ -435,6 +458,23 @@ mod tests {
         assert!(hashes.contains_key("main.wit"));
         assert!(hashes.contains_key("main.ts"));
         assert!(!hashes.contains_key("./main.ts"));
+    }
+
+    #[test]
+    fn typescript_discovers_typed_lists_and_rejects_ambiguous_records() {
+        let body = scalar_exports(
+            "export function echo(values: number[]): Array<number> { return values; }",
+            Compiler::Typescript,
+        )
+        .unwrap();
+        assert!(body.contains("list<f64>"));
+        assert!(
+            scalar_exports(
+                "export function echo(value: Payload): Payload { return value; }",
+                Compiler::Typescript
+            )
+            .is_err()
+        );
     }
 
     #[test]

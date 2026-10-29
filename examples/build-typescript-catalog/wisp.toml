@@ -1,0 +1,16 @@
+[package]
+name = "wisp:typescript-catalog"
+version = "0.1.0"
+
+[metadata]
+description = "TypeScript modules with rich WIT values and shared Component state"
+license = "MIT"
+
+[build]
+compiler = "typescript"
+project = "src"
+sources = ["src/main.ts"]
+wit = "wit/world.wit"
+world = "library"
+javascript-engine = "starlingmonkey"
+typecheck = true

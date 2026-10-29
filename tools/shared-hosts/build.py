@@ -43,15 +43,35 @@ def smoke(host, work):
                                       "--invoke", "answer()", str(consumer)], text=True)
     if result.strip() != "42":
         raise RuntimeError(f"shared provider returned {result!r}")
+    initializer = work / "snapshot-input.wat"
+    initialized = work / "snapshot.wasm"
+    initializer.write_text('''(module
+      (memory 1)
+      (global $value (mut i32) (i32.const 0))
+      (func (export "wizer.initialize")
+        i32.const 0 i32.const 20 i32.store
+        i32.const 22 global.set $value)
+      (func (export "answer") (result i32)
+        i32.const 0 i32.load global.get $value i32.add))\n''')
+    run([host, "wizer", "-Ccache=n", "-Cparallel-compilation=n",
+         "--init-func", "wizer.initialize", initializer, "-o", initialized])
+    answer = subprocess.check_output([str(host), "run", "-Ccache=n", "--invoke", "answer", str(initialized)], text=True)
+    if answer.strip() != "42":
+        raise RuntimeError(f"Wizer snapshot returned {answer!r}")
+    removed = subprocess.run([str(host), "run", "-Ccache=n", "--invoke", "wizer.initialize", str(initialized)],
+                             stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    if removed.returncode == 0:
+        raise RuntimeError("Wizer snapshot retained the initialization export")
     return {"externalModuleImport": "wisp-test-provider", "value": 42,
-            "missingProviderRejected": True}
+            "missingProviderRejected": True,
+            "wizerSnapshot": {"value": 42, "initializerRemoved": True}}
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--prefix", type=Path, default=ROOT / ".tools/shared-hosts/wisp-wasmtime-50.0.0")
     parser.add_argument("--cache", type=Path, default=ROOT / ".tools/shared-hosts/host-build")
-    parser.add_argument("--jobs", type=int, choices=range(1, 9), default=2)
+    parser.add_argument("--jobs", type=int, choices=range(1, 9), default=1)
     parser.add_argument("--check", action="store_true", help="verify the installed host and its import smoke test")
     args = parser.parse_args()
     lock = json.loads((HERE / "wasmtime.lock.json").read_text())

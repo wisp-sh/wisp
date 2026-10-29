@@ -1,0 +1,47 @@
+package wisp:typescript-catalog@0.1.0;
+
+interface types {
+    flags features { gift, priority }
+    record item {
+        name: string,
+        amount: u32,
+        tags: list<string>,
+    }
+    variant choice { none, text(string), numbers(list<u32>) }
+    variant failure { empty, invalid(string) }
+    record request {
+        items: list<item>,
+        label: option<string>,
+        policy: features,
+        metadata: tuple<u32, string>,
+        detail: choice,
+    }
+    record response {
+        summary: string,
+        counts: list<u32>,
+        first: option<item>,
+        policy: features,
+        metadata: tuple<u32, string>,
+        detail: choice,
+    }
+}
+
+interface catalog {
+    use types.{request, response, failure};
+    process: func(value: request) -> result<response, failure>;
+    increment: func() -> u32;
+}
+
+interface formatting {
+    use types.{response};
+    echo: func(value: response) -> response;
+    greet: func(value: string) -> string;
+    count: func(values: list<string>) -> u32;
+    current: func() -> u32;
+}
+
+world library {
+    export types;
+    export catalog;
+    export formatting;
+}

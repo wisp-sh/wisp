@@ -1,0 +1,6 @@
+package wisp:yaml@2.8.1;
+world yaml {
+  export parse-yaml: func(text: string) -> string;
+  export parse-documents: func(text: string) -> string;
+  export stringify-json: func(json: string) -> string;
+}
