@@ -54,7 +54,12 @@ def main():
     for relative, expected in original['bootstrapInputs'].items():
         assert digest(tools/'ocaml'/relative) == expected, 'compiler bootstrap inputs changed; rebuild required'
     assert original['bootstrap'] == json.loads((tools/'ocaml/toolchain.lock.json').read_text())
-    subprocess.run([sys.executable, tools/'build.py', 'package', 'ocaml', '--source-only', '--output-dir', out/'candidate'], env=env, check=True)
+    # Package just the changed provider with the normal package implementation.
+    # Its dependency graph is validated against the original authenticated
+    # archives at installation; those compilers do not need repackaging.
+    import build as compiler_build
+    compiler_build.package_tool(compiler_build.load_manifest(), 'ocaml', root=tools,
+                                output_dir=out/'candidate', source_only=True)
     candidate = out/'candidate/ocaml.wisp.zip'
     toolchain_packages.validate(candidate)
     cli = ROOT/'target/debug/wisp'
