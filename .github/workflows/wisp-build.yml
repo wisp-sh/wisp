@@ -1,0 +1,139 @@
+name: Wisp approved build
+on:
+  workflow_call:
+    inputs:
+      publish:
+        description: Publish release packages to their declared registries with trusted publishing
+        type: boolean
+        default: true
+      wisp_url:
+        description: Origin of the Wisp deployment that records builds. Only change it to test another deployment.
+        type: string
+        default: https://wisp.codes
+      go_host:
+        description: Host that deployment serves Go modules from
+        type: string
+        default: go.wisp.codes
+permissions: {}
+# The record step sends its OIDC token only to this origin, with it as the
+# audience, so a token issued for one deployment is useless to any other.
+env:
+  WISP_ORIGIN: ${{ inputs.wisp_url }}
+  WISP_GO_HOST: ${{ inputs.go_host }}
+jobs:
+  build:
+    if: github.event_name == 'release' || (github.event_name == 'push' && startsWith(github.ref, 'refs/heads/'))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    outputs:
+      artifact_id: ${{ steps.artifacts.outputs.artifact-id }}
+      artifact_digest: ${{ steps.artifacts.outputs.artifact-digest }}
+    permissions:
+      contents: read
+    steps:
+      - name: Prepare the disposable library builder
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo rm -rf -- /usr/share/dotnet /usr/local/lib/android /usr/local/.ghcup /opt/hostedtoolcache/CodeQL
+          free -h
+          df -h "$RUNNER_TEMP"
+          df -i "$RUNNER_TEMP"
+          findmnt -T "$RUNNER_TEMP"
+          python3 - <<'PY'
+          import os, shutil
+          if shutil.disk_usage(os.environ['RUNNER_TEMP']).free < 30 * 1024**3:
+              raise SystemExit('Library compilation requires at least 30 GiB free disk')
+          PY
+      - name: Check out the source commit attested by GitHub
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          path: source
+          submodules: recursive
+          persist-credentials: false
+      - name: Build with the pinned action and release runtime
+        uses: wisp-sh/wisp/.github/actions/library-build@daef8b47ca7f4fd7bd828110c03509644a0a3dca
+      # Wisp downloads this artifact when the build is first requested.
+      # Builds nobody fetches within the retention period expire.
+      - name: Save package artifacts
+        id: artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: wisp-packages-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/wisp-artifacts/
+          if-no-files-found: error
+          retention-days: 90
+  record:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+      attestations: write
+    steps:
+      - name: Download this run's exact build artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          artifact-ids: ${{ needs.build.outputs.artifact_id }}
+          path: ${{ runner.temp }}/wisp-artifacts
+          merge-multiple: true
+      - name: Sign build provenance for every package file
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8
+        with:
+          subject-path: ${{ runner.temp }}/wisp-artifacts/packages/*/*
+      - name: Record file hashes through the pinned action
+        uses: wisp-sh/wisp/.github/actions/library-record@daef8b47ca7f4fd7bd828110c03509644a0a3dca
+        with:
+          artifact-id: ${{ needs.build.outputs.artifact_id }}
+          artifact-digest: ${{ needs.build.outputs.artifact_digest }}
+  publish:
+    needs: [build, record]
+    if: github.event_name == 'release' && inputs.publish
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+    steps:
+      - name: Download this run's exact build artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          artifact-ids: ${{ needs.build.outputs.artifact_id }}
+          path: ${{ runner.temp }}/wisp-artifacts
+          merge-multiple: true
+      - name: Select declared registries
+        id: plan
+        uses: wisp-sh/wisp/.github/actions/library-publish@daef8b47ca7f4fd7bd828110c03509644a0a3dca
+        with:
+          command: plan
+      - name: Install npm with trusted publishing support
+        if: steps.plan.outputs.npm == 'true'
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: '24'
+      - name: Publish npm archives
+        if: steps.plan.outputs.npm == 'true'
+        uses: wisp-sh/wisp/.github/actions/library-publish@daef8b47ca7f4fd7bd828110c03509644a0a3dca
+        with:
+          command: npm
+      - name: Exchange GitHub OIDC for a crates.io publish token
+        if: steps.plan.outputs.cargo == 'true'
+        id: crates
+        uses: rust-lang/crates-io-auth-action@3268eb413133e2960fa4ae0e963ca76380c54cd9
+      - name: Publish crates
+        if: steps.plan.outputs.cargo == 'true'
+        uses: wisp-sh/wisp/.github/actions/library-publish@daef8b47ca7f4fd7bd828110c03509644a0a3dca
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.crates.outputs.token }}
+        with:
+          command: cargo
+      - name: Publish Python wheels
+        if: steps.plan.outputs.pypi == 'true'
+        uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086
+        with:
+          packages-dir: ${{ runner.temp }}/wisp-wheels
+          skip-existing: true

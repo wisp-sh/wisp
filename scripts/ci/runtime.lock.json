@@ -1,0 +1,5 @@
+{
+  "schema": 1,
+  "manifestUrl": "https://github.com/wisp-sh/wisp-buildtools/releases/download/runtime-2026.10.26/runtime-linux-x86_64.json",
+  "manifestSha256": "c433d451215bcdff2504c51860d5abf6dc5d81dcfc479e6541d3332d6ad02dab"
+}

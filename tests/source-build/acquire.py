@@ -54,6 +54,20 @@ def manifest(path, expected):
     require(0 < path.stat().st_size <= MAX_MANIFEST, "source compiler manifest exceeds 64 KiB")
     require(digest(path) == expected, "source compiler manifest checksum mismatch")
     value = strict_json(path.read_bytes())
+    # Buildtools releases include provenance and all available compiler bundles.
+    # Preserve the legacy five-bundle view used by source acceptance.
+    if isinstance(value, dict) and value.get("schema") == 2:
+        require(value.get("platform") == "linux-x86_64" and isinstance(value.get("bundles"), list), "unsupported compiler release manifest")
+        selected = []
+        for entry in value["bundles"]:
+            require(isinstance(entry, dict) and isinstance(entry.get("tool"), str), "invalid release compiler entry")
+            if entry["tool"] not in TOOLS:
+                continue
+            require(entry.get("platform") == "wasm32-wasi", "source compilers must be Wasm bundles")
+            require(isinstance(entry.get("requires"), list) and all(name in {"wisp:" + tool for tool in TOOLS} for name in entry["requires"]), "unsupported shared compiler dependency")
+            require(all(key in entry for key in ("tool", "version", "url", "size", "sha256")), "incomplete release compiler entry")
+            selected.append({key: entry[key] for key in ("tool", "version", "url", "size", "sha256")})
+        value = {"schema": 1, "platform": value["platform"], "bundles": selected}
     require(isinstance(value, dict) and set(value) == {"schema", "platform", "bundles"}
             and type(value["schema"]) is int and value["schema"] == 1
             and value["platform"] == "linux-x86_64", "unsupported source compiler manifest")
