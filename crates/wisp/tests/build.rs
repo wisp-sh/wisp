@@ -35,6 +35,14 @@ fn reject(project: &Path, expected: &str) {
 const CONFIG: &str = "[package]\nname='test:build'\nversion='0.1.0'\n[build]\nroot='main'\n[build.units.main]\ncompiler='clang'\nworld='library'\nsources=['main.cpp']\n";
 const WIT: &str = "package test:build@0.1.0; world library { export answer: func() -> u32; }";
 #[test]
+fn rejects_javascript_options_on_other_compilers() {
+    for option in ["typecheck=true", "javascript-engine='starlingmonkey'"] {
+        let config = CONFIG.replace("root='main'", "root='main'\nwit='wit/world.wit'");
+        let root = fixture(&format!("{config}{option}\n"), WIT);
+        reject(root.path(), "javascript-engine and typecheck require");
+    }
+}
+#[test]
 fn adapter_accepts_a_wit_file_and_top_level_world_before_tool_resolution() {
     let root = fixture(
         "[package]\nname='test:build'\nversion='0.1.0'\n[build]\ncompiler='zig'\nworld='library'\nwit='wit/world.wit'\nsources=['main.zig']\n",

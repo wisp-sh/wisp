@@ -1,0 +1,32 @@
+--- a/src/parse/parser.ts
++++ b/src/parse/parser.ts
+@@ -1,4 +1,4 @@
+-import { env } from 'node:process'
++import { env } from '../browser-process'
+ import type {
+   SourceToken,
+   Token,
+--- a/src/compose/composer.ts
++++ b/src/compose/composer.ts
+@@ -1,4 +1,4 @@
+-import { env } from 'node:process'
++import { env } from '../browser-process'
+ import { Directives } from '../doc/directives.ts'
+ import { Document } from '../doc/Document.ts'
+ import type { ErrorCode } from '../errors.ts'
+--- a/src/log.ts
++++ b/src/log.ts
+@@ -1,4 +1,4 @@
+-import { emitWarning } from 'node:process'
++import { emitWarning } from './browser-process'
+ 
+ export type LogLevelId = 'silent' | 'error' | 'warn' | 'debug'
+ 
+--- a/src/schema/yaml-1.1/binary.ts
++++ b/src/schema/yaml-1.1/binary.ts
+@@ -1,4 +1,4 @@
+-import { Buffer } from 'node:buffer'
++import { Buffer } from '../../browser-buffer'
+ import { Scalar } from '../../nodes/Scalar.ts'
+ import { stringifyString } from '../../stringify/stringifyString.ts'
+ import type { ScalarTag } from '../types.ts'
