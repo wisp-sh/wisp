@@ -32,6 +32,21 @@ env:
   RAYON_NUM_THREADS: '1'
   PYTHONDONTWRITEBYTECODE: '1'
 jobs:
+  execution-start:
+    # A branch push is pending until this same SHA completes a real dispatch.
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04
+    permissions:
+      statuses: write
+    steps:
+      - name: Mark exact-head execution pending before setup
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api --method POST "repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
+            -f state=pending -f context='JavaScript executed acceptance' \
+            -f description='Pinned compiler and installed consumers await execution' \
+            -f target_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
   contracts:
     runs-on: ubuntu-24.04
     timeout-minutes: 60
@@ -45,8 +60,12 @@ jobs:
           cargo +1.98.1 test --locked -p wisp --test build -- --test-threads=1
   installed:
     if: github.event_name == 'workflow_dispatch'
+    needs: execution-start
     runs-on: ubuntu-24.04
     timeout-minutes: 180
+    env:
+      COMPILER_RUN: ${{ inputs.buildtools_run_id }}
+      COMPILER_SHA: ${{ inputs.buildtools_sha }}
     steps:
       - name: Record acceptance start before checkout
         run: |
@@ -57,6 +76,8 @@ jobs:
           path = Path(os.environ['RUNNER_TEMP']) / 'wisp-javascript/status.json'
           path.write_text(json.dumps({'phase': 'setup', 'complete': False, 'passed': False,
                                       'wispSha': os.environ['GITHUB_SHA'],
+                                      'compilerSha': os.environ['COMPILER_SHA'],
+                                      'compilerRunId': os.environ['COMPILER_RUN'],
                                       'runId': os.environ['GITHUB_RUN_ID']}) + '\n')
           PY
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -123,12 +144,20 @@ jobs:
       - name: Compile without networking and exercise installed npm and Rust consumers
         run: |
           python3 tests/javascript/run.py --cli target/debug/wisp --bundles .acceptance-bundles \
-            --out out/javascript --deny-network 2>&1 | tee evidence/javascript/acceptance.log
+            --out out/javascript --deny-network --compiler-sha "$COMPILER_SHA" \
+            --compiler-run "$COMPILER_RUN" 2>&1 | tee evidence/javascript/acceptance.log
           python3 - <<'PY'
-          import json
+          import json, os
           result = json.load(open('out/javascript/result.json'))
           assert result['passed'] and result['complete'] and result['networkDeniedDuringSourceBuild']
+          assert result['sourceCommit'] == os.environ['GITHUB_SHA']
+          assert result['compilerSourceCommit'] == os.environ['COMPILER_SHA']
+          assert result['compilerRunId'] == os.environ['COMPILER_RUN']
           assert len(result['cases']) == 6
+          assert {(case['engine'], case['name']) for case in result['cases'] if case['passed']} == {
+              (engine, name) for engine in ('quickjs', 'starlingmonkey')
+              for name in ('typescript-catalog', 'yaml', 'markdown-it')}
+          assert all(result['inferredApis'][engine]['passed'] for engine in ('quickjs', 'starlingmonkey'))
           PY
       - name: Retain current execution evidence
         if: always()
@@ -143,3 +172,20 @@ jobs:
             out/javascript/commands.json
           if-no-files-found: error
           retention-days: 7
+  execution-result:
+    if: always() && github.event_name == 'workflow_dispatch'
+    needs: [execution-start, contracts, installed]
+    runs-on: ubuntu-24.04
+    permissions:
+      statuses: write
+    steps:
+      - name: Publish exact-head acceptance result after evidence retention
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ACCEPTANCE_STATE: ${{ needs.contracts.result == 'success' && needs.installed.result == 'success' && 'success' || 'failure' }}
+          COMPILER_SHA: ${{ inputs.buildtools_sha }}
+        run: |
+          gh api --method POST "repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
+            -f state="$ACCEPTANCE_STATE" -f context='JavaScript executed acceptance' \
+            -f description="Installed acceptance $ACCEPTANCE_STATE; compiler ${COMPILER_SHA:0:12}" \
+            -f target_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"

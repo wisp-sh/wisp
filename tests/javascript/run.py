@@ -120,18 +120,27 @@ def main():
     parser.add_argument("--cli", type=Path, required=True)
     parser.add_argument("--bundles", type=Path, required=True)
     parser.add_argument("--out", type=Path, required=True)
+    parser.add_argument("--compiler-sha", required=True)
+    parser.add_argument("--compiler-run", required=True)
     parser.add_argument("--deny-network", action="store_true", help="run source builds under sudo unshare -n on hosted Linux")
     args = parser.parse_args()
     cli, bundles, out = args.cli.resolve(), args.bundles.resolve(), args.out.resolve()
     out.mkdir(parents=True, exist_ok=False)
     env = dict(os.environ, PYTHONDONTWRITEBYTECODE="1", CARGO_BUILD_JOBS="1", RAYON_NUM_THREADS="1")
+    # Configure the worker before startup, outside every project input tree.
+    cache = out / "cache"
+    worker_cache = cache / "worker"
+    worker_cache.mkdir(parents=True)
+    env.update(XDG_CACHE_HOME=str(cache), WISP_WORKER_CACHE=str(worker_cache))
     frozen = out / "wisp"
     freeze_cli(cli, frozen, allow_link=False, environment=env)
     cli = frozen
     commands = []
     report = {"passed": False, "complete": False, "sourceCommit": subprocess.check_output(
         ["git", "rev-parse", "HEAD"], text=True).strip(), "cliSha256": digest(cli),
-        "workerSha256": worker_digest(cli), "cases": []}
+        "workerSha256": worker_digest(cli), "cases": [],
+        "compilerSourceCommit": args.compiler_sha, "compilerRunId": args.compiler_run,
+        "cacheEnvironment": {key: env[key] for key in ("XDG_CACHE_HOME", "WISP_WORKER_CACHE")}}
 
     def save():
         write(out / "result.json", json.dumps(report, indent=2) + "\n")
@@ -175,9 +184,12 @@ def main():
         source_env = {**env, "PATH": str(guards) + os.pathsep + env["PATH"]}
 
         def build(project, destination, success=True):
+            assert not cache.is_relative_to(project.resolve()), "cache must stay outside source inputs"
             argv = [cli, "build", project, "--component-only", "--out", destination]
             if args.deny_network:
-                argv = ["sudo", "-E", "unshare", "-n", "--", "env", "PATH=" + source_env["PATH"], *argv]
+                argv = ["sudo", "-E", "unshare", "-n", "--", "env", "PATH=" + source_env["PATH"],
+                        "XDG_CACHE_HOME=" + env["XDG_CACHE_HOME"],
+                        "WISP_WORKER_CACHE=" + env["WISP_WORKER_CACHE"], *argv]
             result = run(argv, environment=source_env, success=success)
             if not success:
                 assert not destination.exists(), "failed source build published output"
