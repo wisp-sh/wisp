@@ -1,0 +1,6 @@
+package wisp:markdown-it@15.0.3;
+
+world markdown {
+    export render: func(source: string) -> string;
+    export render-inline: func(source: string) -> string;
+}

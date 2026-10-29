@@ -1,0 +1,133 @@
+name: JavaScript source and installed consumers
+on:
+  push:
+    branches: [feature/starlingmonkey]
+  pull_request:
+    paths:
+      - 'crates/wisp/src/build*.rs'
+      - 'crates/wisp/src/toolchain_install.rs'
+      - 'tests/javascript/**'
+      - 'examples/build-typescript-catalog/**'
+      - '.github/workflows/javascript-acceptance.yml'
+  workflow_dispatch:
+    inputs:
+      buildtools_run_id:
+        description: Successful buildtools run containing javascript-linux-x86_64 packages
+        required: true
+        type: string
+      buildtools_sha:
+        description: Exact immutable buildtools commit used by that run
+        required: true
+        type: string
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: javascript-acceptance-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: true
+env:
+  CARGO_BUILD_JOBS: '1'
+  CARGO_INCREMENTAL: '0'
+  CARGO_PROFILE_DEV_DEBUG: '0'
+  RAYON_NUM_THREADS: '1'
+  PYTHONDONTWRITEBYTECODE: '1'
+jobs:
+  contracts:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Check adapter contracts and source configuration
+        run: |
+          rustup toolchain install 1.98.1 --profile minimal
+          cargo +1.98.1 test --locked -p wisp --lib build::adapters -- --test-threads=1
+          cargo +1.98.1 test --locked -p wisp --lib build::inferred -- --test-threads=1
+          cargo +1.98.1 test --locked -p wisp --test build -- --test-threads=1
+  installed:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.13'
+      - name: Authenticate the compiler artifact run
+        env:
+          GH_TOKEN: ${{ github.token }}
+          COMPILER_RUN: ${{ inputs.buildtools_run_id }}
+          COMPILER_SHA: ${{ inputs.buildtools_sha }}
+        run: |
+          mkdir -p evidence/javascript
+          gh api "repos/wisp-sh/wisp-buildtools/actions/runs/$COMPILER_RUN" > evidence/javascript/compiler-run.json
+          python3 - <<'PY'
+          import json, os, re
+          record = json.load(open('evidence/javascript/compiler-run.json'))
+          assert re.fullmatch('[0-9a-f]{40}', os.environ['COMPILER_SHA'])
+          assert record['head_sha'] == os.environ['COMPILER_SHA']
+          assert record['status'] == 'completed' and record['conclusion'] == 'success'
+          assert record['head_repository']['full_name'] == 'wisp-sh/wisp-buildtools'
+          PY
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: wisp-sh/wisp-buildtools
+          ref: ${{ inputs.buildtools_sha }}
+          path: .acceptance-buildtools
+          persist-credentials: false
+      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0
+        with:
+          repository: wisp-sh/wisp-buildtools
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.buildtools_run_id }}
+          name: javascript-linux-x86_64
+          path: .acceptance-bundles
+      - name: Provision pinned execution hosts and consumer tooling
+        run: |
+          python3 - <<'PY'
+          import importlib.util, os
+          from pathlib import Path
+          path = Path('.acceptance-buildtools/tools/ci-prerequisites.py')
+          spec = importlib.util.spec_from_file_location('prerequisites', path)
+          module = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(module)
+          module.check_lock()
+          host = module.install('wasmtime')
+          python = module.install('wasmtime-python').parents[1]
+          with open(os.environ['GITHUB_ENV'], 'a') as stream:
+              for key, value in {'WISP_WASMTIME': host, 'WISP_WIZER_WASMTIME': host,
+                                 'WISP_WASMTIME_PYTHON': python}.items():
+                  stream.write(f'{key}={value}\n')
+          PY
+          python3 tests/library-chain/setup.py > evidence/javascript/consumer-setup.log 2>&1
+          python3 tools/upstream-bindings/setup.py --out .tools/upstream-bindings
+          echo "$PWD/.tools/library-chain-node/node/bin" >> "$GITHUB_PATH"
+          echo 'RUSTUP_TOOLCHAIN=1.98.1' >> "$GITHUB_ENV"
+          echo "WISP_NODE=$PWD/.tools/library-chain-node/node/bin/node" >> "$GITHUB_ENV"
+          echo "WISP_JCO=$PWD/.tools/library-js/node_modules/.bin/jco" >> "$GITHUB_ENV"
+          echo "WISP_WIT_BINDGEN=$PWD/.tools/upstream-bindings/wit-bindgen" >> "$GITHUB_ENV"
+          echo "WISP_WORKER=$PWD/target/debug/wisp-worker" >> "$GITHUB_ENV"
+          echo "CARGO_TARGET_DIR=$PWD/target" >> "$GITHUB_ENV"
+      - name: Build Wisp and its execution worker
+        run: cargo +1.98.1 build --locked -p wisp -p wisp-worker -j1 > evidence/javascript/wisp-build.log 2>&1
+      - name: Compile without networking and exercise installed npm and Rust consumers
+        run: |
+          python3 tests/javascript/run.py --cli target/debug/wisp --bundles .acceptance-bundles \
+            --out out/javascript --deny-network 2>&1 | tee evidence/javascript/acceptance.log
+          python3 - <<'PY'
+          import json
+          result = json.load(open('out/javascript/result.json'))
+          assert result['passed'] and result['complete'] and result['networkDeniedDuringSourceBuild']
+          assert len(result['cases']) == 6
+          PY
+      - name: Retain current execution evidence
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+        with:
+          name: javascript-source-consumer-evidence
+          path: |
+            evidence/javascript/*.log
+            evidence/javascript/*.json
+            out/javascript/result.json
+            out/javascript/commands.json
+          if-no-files-found: error
+          retention-days: 7

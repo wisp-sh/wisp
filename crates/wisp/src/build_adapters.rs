@@ -180,6 +180,9 @@ impl Toolchain {
             ("WISP_WASM_TOOLS_TOOLCHAIN", &tools.wasm_tools_toolchain),
             ("WISP_PREVIEW1_ADAPTER", &tools.preview1_adapter),
             ("WISP_JAVASCRIPT_TOOLCHAIN", &tools.javascript),
+            ("WISP_TSRS_TOOLCHAIN", &tools.tsrs),
+            ("WISP_WIZER_TOOLCHAIN", &tools.wizer),
+            ("WISP_WIZER_WASMTIME", &tools.wizer_wasmtime),
             ("WISP_JVM_TOOLCHAIN", &tools.jvm),
             ("WISP_TEAVM_TOOLCHAIN", &tools.teavm),
         ] {
@@ -188,10 +191,17 @@ impl Toolchain {
                 "WISP_WASMTIME_PYTHON" => {
                     matches!(
                         compiler,
-                        Compiler::Assemblyscript | Compiler::Swift | Compiler::Bend
+                        Compiler::Assemblyscript
+                            | Compiler::Swift
+                            | Compiler::Bend
+                            | Compiler::Javascript
+                            | Compiler::Typescript
                     )
                 }
                 "WISP_JAVASCRIPT_TOOLCHAIN" => matches!(compiler, Compiler::Bend),
+                "WISP_TSRS_TOOLCHAIN" | "WISP_WIZER_TOOLCHAIN" | "WISP_WIZER_WASMTIME" => {
+                    matches!(compiler, Compiler::Javascript | Compiler::Typescript)
+                }
                 "WISP_CLANG" => matches!(compiler, Compiler::Zig),
                 "WISP_CLANG_RESOURCE_DIR" => matches!(
                     compiler,
@@ -241,6 +251,11 @@ impl Toolchain {
             if let Some(path) = selected(root, configured, variable)? {
                 environment.insert(variable.into(), path);
             }
+        }
+        if matches!(compiler, Compiler::Javascript | Compiler::Typescript) {
+            environment
+                .entry("WISP_WIZER_WASMTIME".into())
+                .or_insert_with(|| runtime.path.clone());
         }
         // Explicit package paths also work without a selected installation.
         for (variable, source, levels) in [
@@ -358,6 +373,12 @@ impl Toolchain {
         argv.extend(["--output".into(), output.to_string_lossy().into_owned()]);
         match self.compiler {
             Compiler::Javascript | Compiler::Typescript => {
+                if let Some(engine) = unit.javascript_engine {
+                    argv.extend(["--engine".into(), engine.name().into()]);
+                }
+                if unit.typecheck {
+                    argv.push("--typecheck".into());
+                }
                 argv.extend([
                     "--module-root".into(),
                     module_root.to_string_lossy().into_owned(),
@@ -662,6 +683,8 @@ mod tests {
             project: None,
             entry: matches!(compiler, Compiler::Java | Compiler::Kotlin).then(|| "Math".into()),
             optimization: None,
+            javascript_engine: None,
+            typecheck: false,
             dependencies: BTreeMap::new(),
         }
     }
@@ -878,6 +901,10 @@ mod tests {
             if matches!(compiler, Compiler::Python) {
                 source_unit.project = Some(".".into());
             }
+            if matches!(compiler, Compiler::Javascript | Compiler::Typescript) {
+                source_unit.javascript_engine = Some(JavascriptEngine::Starlingmonkey);
+                source_unit.typecheck = true;
+            }
             let bytes = toolchain
                 .compile(
                     &root,
@@ -899,6 +926,13 @@ mod tests {
             assert!(!files.contains_key("dist/previous-build.wasm"));
             if matches!(compiler, Compiler::Javascript | Compiler::Typescript) {
                 assert!(files.contains_key("node_modules/local-package/dist/index.js"));
+                let arguments = commands[0]["arguments"].as_array().unwrap();
+                assert!(arguments.iter().any(|value| value == "--typecheck"));
+                let engine = arguments
+                    .iter()
+                    .position(|value| value == "--engine")
+                    .unwrap();
+                assert_eq!(arguments[engine + 1], "starlingmonkey");
             }
             assert_eq!(commands[0]["status"], 0);
             if matches!(compiler, Compiler::Python) {

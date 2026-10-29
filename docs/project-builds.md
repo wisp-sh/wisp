@@ -53,7 +53,7 @@ and version. The generated and selected contracts stay under `build/units/`.
 | Compiler selection | Current Component API |
 | --- | --- |
 | `zig`, `assemblyscript`, `nim` | Explicit scalar ABI exports; Wisp wraps Core Wasm and initializes Nim's reactor |
-| `javascript`, `typescript` | Authored WIT supports synchronous typed imports, strings, lists, records and results; TypeScript transpilation does not type-check |
+| `javascript`, `typescript` | QuickJS or explicit StarlingMonkey; authored WIT supports synchronous typed imports and rich values; optional Wasm tsrs checking |
 | `goose` | Typed scalar `export fn` APIs; stack-free `scalar-v1` implementations with reactor initialization |
 | `grain` | Raw scalar exports with an adjacent or authored WIT contract; heap values require ABI conversion |
 | `bend` | Bend 2 direct `U32`/`F32` function exports through the JavaScript backend; sequential execution |
@@ -89,6 +89,30 @@ Python functions use WIT names converted to snake_case. Records use the generate
 `entry` applies only to the default scalar adapter. JavaScript
 has no Node builtins or browser DOM. The additional scalar adapters do not
 automatically convert language-managed strings, collections or objects.
+
+For JavaScript and TypeScript, `javascript-engine = "starlingmonkey"` selects the
+pinned StarlingMonkey runtime; the default is `"quickjs"`. Set `typecheck = true`
+to run the tsrs checker inside Wasm before bundling. A root `tsconfig.json`
+controls project checking. Otherwise the checker uses strict ES2022 and bundler
+module resolution. Both settings also work on named build units. JavaScript
+projects that enable checking must include TypeScript files or a tsconfig.
+
+TypeScript discovery accepts explicit scalar, string, `Uint8Array`, and typed
+array/list signatures. Named records, variants, errors, re-exports and untyped
+JavaScript APIs use authored or adjacent WIT; Wisp does not guess those contracts.
+Offline npm dependencies live under the selected project's `node_modules`.
+Package metadata and dependency files are staged and hashed with source files.
+
+StarlingMonkey supports synchronous WIT and JavaScript Promise exports that
+settle through microtasks. Async WIT, HTTP and timer-driven exports are outside
+this adapter's current contract. The approved native Wizer host captures Wasm
+initialization; receipts report `fullyWasmHostedBuild = false`. Initialization
+must be safe to snapshot. Set `build.tools.wizer-wasmtime` or
+`WISP_WIZER_WASMTIME` when using a separate approved snapshot host. The normal
+Wisp source host includes Wizer. `build.tools.tsrs`, `build.tools.wizer`, and
+`build.tools.wasmtime-python` select the checker, snapshot adapter, and Python
+execution host when they are not selected through an installed toolchain.
+See the [TypeScript catalog example](../examples/build-typescript-catalog/README.md).
 
 Set `project` to include local imports under a shared source root. Swift, Java
 and Kotlin accept multiple source files. Source inputs, adjacent contracts,

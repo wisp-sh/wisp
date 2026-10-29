@@ -91,6 +91,9 @@ struct Build {
     includes: Vec<PathBuf>,
     optimization: Option<String>,
     entry: Option<String>,
+    javascript_engine: Option<JavascriptEngine>,
+    #[serde(default)]
+    typecheck: bool,
     #[serde(default)]
     tools: Tools,
     #[serde(default)]
@@ -124,6 +127,9 @@ struct Tools {
     nim: Option<PathBuf>,
     javascript: Option<PathBuf>,
     typescript: Option<PathBuf>,
+    tsrs: Option<PathBuf>,
+    wizer: Option<PathBuf>,
+    wizer_wasmtime: Option<PathBuf>,
     python: Option<PathBuf>,
     grain: Option<PathBuf>,
     bend: Option<PathBuf>,
@@ -148,8 +154,25 @@ struct Unit {
     entry: Option<String>,
     #[serde(default)]
     optimization: Option<String>,
+    javascript_engine: Option<JavascriptEngine>,
+    #[serde(default)]
+    typecheck: bool,
     #[serde(default)]
     dependencies: BTreeMap<String, String>,
+}
+#[derive(Clone, Copy, Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum JavascriptEngine {
+    Quickjs,
+    Starlingmonkey,
+}
+impl JavascriptEngine {
+    fn name(self) -> &'static str {
+        match self {
+            Self::Quickjs => "quickjs",
+            Self::Starlingmonkey => "starlingmonkey",
+        }
+    }
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -663,6 +686,8 @@ pub fn run_cli(args: &[String]) -> Result<Value> {
                 includes: std::mem::take(&mut config.build.includes),
                 optimization: config.build.optimization.take(),
                 entry: config.build.entry.take(),
+                javascript_engine: config.build.javascript_engine,
+                typecheck: config.build.typecheck,
                 dependencies: BTreeMap::new(),
             },
         );
@@ -673,7 +698,9 @@ pub fn run_cli(args: &[String]) -> Result<Value> {
                 && config.build.sources.is_empty()
                 && config.build.includes.is_empty()
                 && config.build.optimization.is_none()
-                && config.build.entry.is_none(),
+                && config.build.entry.is_none()
+                && config.build.javascript_engine.is_none()
+                && !config.build.typecheck,
             "project, sources, includes and optimization at build level require build.compiler"
         );
     }
@@ -738,6 +765,14 @@ pub fn run_cli(args: &[String]) -> Result<Value> {
     let mut prebuilt = BTreeMap::new();
     for (name, unit) in &config.build.units {
         crate::identity::parse(&format!("build:{name}"))?;
+        ensure!(
+            (unit.javascript_engine.is_none() && !unit.typecheck)
+                || matches!(
+                    unit.compiler,
+                    Some(Compiler::Javascript | Compiler::Typescript)
+                ),
+            "javascript-engine and typecheck require a JavaScript or TypeScript compiler"
+        );
         ensure!(
             matches!(unit.optimization.as_deref(), None | Some("O0" | "O1")),
             "unsupported build optimization: {:?}",
