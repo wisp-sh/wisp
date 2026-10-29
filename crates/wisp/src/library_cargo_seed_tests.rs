@@ -7,7 +7,8 @@ fn packaged_worker_manifest_matches_cargo_normalization() {
         license: Some("MIT".into()),
         ..Default::default()
     };
-    let original = cargo_manifest("demo-c-math", "0.1.0", &metadata, false, false, true).unwrap();
+    let original =
+        cargo_manifest("demo-c-math", "0.1.0", &metadata, false, false, false, true).unwrap();
     let expected = packaged_cargo_manifest("demo-c-math", &original).unwrap();
     // Produced by Cargo 1.98.1's package command, not by Wisp's normalizer.
     let actual: toml::Value = toml::from_str(include_str!(
@@ -30,18 +31,24 @@ fn manifests() -> Vec<String> {
     let mut manifests = Vec::new();
     for wasi in [false, true] {
         for asynchronous in [false, true] {
-            for worker in [false, true] {
-                manifests.push(
-                    cargo_manifest(
-                        "wisp-seed-check",
-                        "0.1.0",
-                        &crate::library_metadata::Metadata::default(),
-                        wasi,
-                        asynchronous,
-                        worker,
-                    )
-                    .unwrap(),
-                );
+            for reactor in [false, true] {
+                if reactor && !wasi {
+                    continue;
+                }
+                for worker in [false, true] {
+                    manifests.push(
+                        cargo_manifest(
+                            "wisp-seed-check",
+                            "0.1.0",
+                            &crate::library_metadata::Metadata::default(),
+                            wasi,
+                            asynchronous,
+                            reactor,
+                            worker,
+                        )
+                        .unwrap(),
+                    );
+                }
             }
         }
     }

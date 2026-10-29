@@ -105,6 +105,7 @@ jobs:
         run: |
           cargo build --locked -p wisp -p wisp-worker -j1
           cargo test --locked -p wisp --bin wisp build -- --test-threads=1
+          cargo test --locked -p wisp --bin wisp setup_seed_covers_generated_library_dependencies -- --test-threads=1
           cargo test --locked -p wisp --test build -- --test-threads=1
       - name: Package changed OCaml adapters and install all compiler bundles fresh
         run: python3 tests/ocaml/setup.py --buildtools .tools/wisp-buildtools --runtime "$RUNNER_TEMP/runtime" --out "$RUNNER_TEMP/ocaml"
