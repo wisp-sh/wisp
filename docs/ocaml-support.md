@@ -90,6 +90,10 @@ Run the **OCaml installed source acceptance** workflow with an exact
 unchanged compiler payloads, packages the changed adapters, installs them into a
 fresh prefix and executes application builds with networking disabled. It then
 installs the generated npm and Cargo archives and exercises 200 calls with GC.
+The `OCaml public installed acceptance` commit status starts pending and records
+the exact tested Wisp commit and compiler revision. It passes only after the
+complete installed acceptance, including invalidation and failure checks. An
+absent, pending or failed status does not satisfy the public acceptance gate.
 CPDF regression acceptance runs separately in the private `wisp-sh/wisp-pkgs`
 repository, using the same exact candidate revisions and `setup.py --flat-install`
 to freshly package and install the changed adapter before `verify.py --rebuild`.

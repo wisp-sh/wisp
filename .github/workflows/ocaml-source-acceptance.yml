@@ -34,15 +34,28 @@ jobs:
           for b in manifest['bundles']:
               assert re.fullmatch('[0-9a-f]{64}', b['sha256']) and b['size'] > 0
           PYTHON
+          python3 -m unittest discover -s tests/ocaml -p test_status.py
   acceptance:
     if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
     timeout-minutes: 180
+    permissions:
+      contents: read
+      statuses: write
     env:
       CARGO_BUILD_JOBS: '1'
       CARGO_INCREMENTAL: '0'
       PYTHONDONTWRITEBYTECODE: '1'
     steps:
+      - name: Report public installed acceptance as pending on the tested commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BUILDTOOLS_REF: ${{ inputs.buildtools_ref }}
+        run: |
+          gh api --silent --method POST "repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
+            -f state=pending -f context='OCaml public installed acceptance' \
+            -f description="Compiler ${BUILDTOOLS_REF:0:12} running; CPDF is a separate gate" \
+            -f target_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
@@ -123,3 +136,29 @@ jobs:
           path: evidence/ocaml
           retention-days: 14
           if-no-files-found: error
+      - name: Report complete public acceptance on the exact tested commit
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ACCEPTANCE_JOB_STATUS: ${{ job.status }}
+          BUILDTOOLS_REF: ${{ inputs.buildtools_ref }}
+        run: |
+          state=failure
+          if [ "$ACCEPTANCE_JOB_STATUS" = success ] && python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          root=Path(os.environ['RUNNER_TEMP'])/'ocaml'
+          setup=json.loads((root/'setup.json').read_text())
+          result=json.loads((root/'result.json').read_text())
+          assert setup['wispCommit'] == os.environ['GITHUB_SHA']
+          assert setup['buildtoolsCommit'] == os.environ['BUILDTOOLS_REF']
+          assert setup['installer'] == 'wisp' and setup['cleanInstall'] is True
+          assert result['passed'] is True and result['complete'] is True
+          assert result['compilerManifestSha256'] == setup['compilerManifestSha256']
+          PY
+          then state=success; fi
+          gh api --silent --method POST "repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
+            -f state="$state" -f context='OCaml public installed acceptance' \
+            -f description="Compiler ${BUILDTOOLS_REF:0:12}: public acceptance $state; CPDF is separate" \
+            -f target_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          [ "$state" = success ]

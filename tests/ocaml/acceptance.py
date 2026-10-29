@@ -30,14 +30,16 @@ def main():
     logs = out/'logs'; logs.mkdir()
     def run(argv, *, cwd=ROOT, environment=env, success=True):
         argv=list(map(str,argv)); index=len(commands)
-        path=logs/f'{index:03}.log'
+        path=logs/f'{index:03}.stdout.log'
+        errors=logs/f'{index:03}.stderr.log'
         print('+ '+' '.join(argv),flush=True)
-        with path.open('w') as stream:
-            result=subprocess.run(argv,cwd=cwd,env=environment,stdin=subprocess.DEVNULL,stdout=stream,stderr=subprocess.STDOUT,timeout=3600)
-        commands.append({'argv':argv,'cwd':str(cwd),'exitCode':result.returncode,'log':str(path)})
+        with path.open('w') as stream, errors.open('w') as stderr:
+            result=subprocess.run(argv,cwd=cwd,env=environment,stdin=subprocess.DEVNULL,stdout=stream,stderr=stderr,timeout=3600)
+        commands.append({'argv':argv,'cwd':str(cwd),'exitCode':result.returncode,'log':str(path),'stderrLog':str(errors)})
         (out/'commands.json').write_text(json.dumps(commands,indent=2)+'\n')
         if (result.returncode==0)!=success:
             print(path.read_text()[-24000:],file=sys.stderr)
+            print(errors.read_text()[-24000:],file=sys.stderr)
             raise RuntimeError(f'command failed; see {path}')
         return path.read_text().strip()
     cli = ROOT/'target/debug/wisp'

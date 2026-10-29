@@ -108,6 +108,7 @@ def main():
               'executionHostSha256': digest(env['WISP_WORKER'])}
     if not args.flat_install:
         report['wispSha256'] = digest(cli)
+        report['wispCommit'] = subprocess.check_output(['git','-C',ROOT,'rev-parse','HEAD'],text=True).strip()
     (out/'setup.json').write_text(json.dumps(report,indent=2)+'\n')
     (out/'environment.json').write_text(json.dumps({k:v for k,v in env.items() if k.startswith(('WISP_','CARGO_')) or k in ('PATH','XDG_CACHE_HOME')},indent=2)+'\n')
     (out/'environment.sh').write_text('\n'.join('export '+k+'='+shlex.quote(v) for k,v in env.items()
