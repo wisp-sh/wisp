@@ -478,6 +478,8 @@ fn package_path(root: &Path, selected: &Selection, environment: &str) -> Result<
             ("wisp:javascript", "build", 1)
         }
         "WISP_PYTHON_TOOLCHAIN" => ("wisp:python", "build", 1),
+        "WISP_TSRS_TOOLCHAIN" => ("wisp:tsrs", "tsrs", 2),
+        "WISP_WIZER_TOOLCHAIN" => ("wisp:wizer", "snapshot", 1),
         "WISP_GRAIN_TOOLCHAIN" => ("wisp:grain", "build", 1),
         "WISP_BEND_TOOLCHAIN" => ("wisp:bend", "build", 1),
         "WISP_GOOSE_TOOLCHAIN" => ("wisp:goose", "build", 1),
@@ -603,6 +605,8 @@ fn environment(root: &Path) -> Result<String> {
         "WISP_NIM_TOOLCHAIN",
         "WISP_JAVASCRIPT_TOOLCHAIN",
         "WISP_TYPESCRIPT_TOOLCHAIN",
+        "WISP_TSRS_TOOLCHAIN",
+        "WISP_WIZER_TOOLCHAIN",
         "WISP_PYTHON_TOOLCHAIN",
         "WISP_GRAIN_TOOLCHAIN",
         "WISP_GOOSE_TOOLCHAIN",
