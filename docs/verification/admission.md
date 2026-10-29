@@ -8,6 +8,12 @@ exact rules and trust model. For everyday use see
 
 ## Component library packages
 
+Release inputs must be regular files. Admission rejects symlinks and special
+files, checks the opened file's size, and bounds the read even if the file grows.
+`go.mod` and `go.info` each have a 16 KiB limit. The Component has a 64 MiB limit;
+release JSON and package archives have a 128 MiB limit. Rust guest generation
+also limits its second read of release JSON to 1 MiB.
+
 Admission validates the Component, decoded contract, names, versions, targets, requirements, tools, archive framing, metadata, notices, and hashes. It regenerates Rust source, WIT, package descriptors, and the complete JCO output, then compares them with the submitted archives. Optional Go admission regenerates its API, runtime metadata, and package files. Richer native clients also require reconstruction of their native archive using the declared platform and pinned inputs. For Rust worker packages, admission reconstructs generated source using the
 release-carried worker platform manifest. It checks worker version `0.2.0`,
 protocol `1`, Wasmtime `50.0.0`, exact paths and file inventory, and each worker's
