@@ -68,6 +68,8 @@ jobs:
     uses: wisp-sh/wisp/.github/workflows/wisp-build.yml@WISP_WORKFLOW_COMMIT
     with:
       publish: true
+      wisp_url: https://wisp.codes
+      go_host: go.wisp.codes
     permissions:
       contents: read
       actions: read
@@ -79,6 +81,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     environment: pypi
+    env:
+      WISP_GO_HOST: ${{ needs.library.outputs.go_host }}
     permissions:
       actions: read
       id-token: write
@@ -129,6 +133,12 @@ The reusable workflow exposes these outputs:
 | `artifact_id` | Exact GitHub artifact ID produced by this run and attempt. Use this rather than an artifact name or a previous run. |
 | `artifact_digest` | GitHub artifact SHA-256 passed to Wisp when recording. Per-file SHA-256 and size checks run again before publication. |
 | `pypi` | String `true` only when recording succeeded for a release, `publish` is enabled, and a package declares PyPI. Callers must also depend on successful completion of the reusable workflow. |
+| `go_host` | Effective `go_host` input. Pass it as `WISP_GO_HOST` in the caller's PyPI job so mixed Go/PyPI artifacts validate against the same deployment. |
+
+For a test deployment, change `wisp_url` and `go_host` on the reusable call. The
+caller job above forwards `go_host` automatically. Artifact admission checks
+every declared target, including Go module paths, even when preparing only PyPI
+wheels. Keep that environment setting when using a custom Go host.
 
 ## Retrying a Python release
 

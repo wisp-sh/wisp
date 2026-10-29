@@ -3,6 +3,7 @@
 import copy
 import io
 import json
+import os
 import re
 import sys
 import tempfile
@@ -216,6 +217,21 @@ class PyPIPreparationTests(unittest.TestCase):
             prepare_pypi(self.artifacts, self.wheels, self.output)
         self.network.assert_not_called()
         self.assertFalse(self.output.exists())
+
+    def test_mixed_go_pypi_artifact_uses_the_callers_deployment_host(self):
+        package = self.value["packages"][0]
+        module = "go.example.com/octocat/math/first"
+        package["targets"]["go"] = module
+        for filename, data in {"go.mod": f"module {module}\n".encode(), "go.info": b'{"Version":"v1.0.0"}', "go.zip": b"module archive"}.items():
+            (self.artifacts / "packages/first" / filename).write_bytes(data)
+            package["files"].append({"name": filename, "sha256": sha256(data), "size": len(data), "mediaType": "application/octet-stream"})
+        (self.artifacts / "manifest.json").write_bytes(json_bytes(self.value))
+        with patch.dict(os.environ, {"WISP_GO_HOST": ""}), self.assertRaisesRegex(ValueError, "Go module path"):
+            self.prepare(self.release)
+        self.network.assert_not_called()
+        with patch.dict(os.environ, {"WISP_GO_HOST": "go.example.com"}):
+            self.assertFalse(self.prepare(self.release))
+        self.assertEqual(self.output.read_text(), "pypi=false\n")
 
     def test_mixed_projects_stage_only_missing_files_and_check_all_before_staging(self):
         second_root = self.root / "mixed"

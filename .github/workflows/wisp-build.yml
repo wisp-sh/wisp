@@ -24,6 +24,9 @@ on:
       pypi:
         description: True only for a recorded release with publish enabled and a PyPI target
         value: ${{ jobs.record.outputs.pypi }}
+      go_host:
+        description: Go module host used to validate this artifact in caller-side publication
+        value: ${{ jobs.record.outputs.go_host }}
 permissions: {}
 # The record step sends its OIDC token only to this origin, with it as the
 # audience, so a token issued for one deployment is useless to any other.
@@ -80,6 +83,7 @@ jobs:
     timeout-minutes: 20
     outputs:
       pypi: ${{ github.event_name == 'release' && inputs.publish && steps.plan.outputs.pypi == 'true' }}
+      go_host: ${{ inputs.go_host }}
     permissions:
       contents: read
       actions: read
