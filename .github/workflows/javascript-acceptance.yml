@@ -48,6 +48,17 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 180
     steps:
+      - name: Record acceptance start before checkout
+        run: |
+          mkdir -p "$RUNNER_TEMP/wisp-javascript"
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          path = Path(os.environ['RUNNER_TEMP']) / 'wisp-javascript/status.json'
+          path.write_text(json.dumps({'phase': 'setup', 'complete': False, 'passed': False,
+                                      'wispSha': os.environ['GITHUB_SHA'],
+                                      'runId': os.environ['GITHUB_RUN_ID']}) + '\n')
+          PY
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
         with:
@@ -125,6 +136,7 @@ jobs:
         with:
           name: javascript-source-consumer-evidence
           path: |
+            ${{ runner.temp }}/wisp-javascript/status.json
             evidence/javascript/*.log
             evidence/javascript/*.json
             out/javascript/result.json
