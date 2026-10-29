@@ -14,7 +14,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: ocaml-source-${{ github.ref }}
+  group: ocaml-source-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 jobs:
   contracts:
@@ -65,12 +65,6 @@ jobs:
           ref: ${{ inputs.buildtools_ref }}
           path: .tools/wisp-buildtools
           persist-credentials: false
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-        with:
-          repository: wisp-sh/wisp-pkgs
-          ref: a9a1056b5326068e0f84eda6fdf2d2098ca649b5
-          path: .tools/wisp-pkgs
-          persist-credentials: false
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
         with:
           python-version: '3.13'
@@ -101,24 +95,26 @@ jobs:
           source "$RUNNER_TEMP/ocaml/environment.sh"
           sudo --preserve-env unshare --net --setuid "$(id -u)" --setgid "$(id -g)" \
             python3 tests/ocaml/acceptance.py --out "$RUNNER_TEMP/ocaml" --buildtools "$PWD/.tools/wisp-buildtools"
-      - name: Rebuild CPDF with the candidate installed compiler and verify commands
-        run: |
-          source "$RUNNER_TEMP/ocaml/environment.sh"
-          python3 .tools/wisp-pkgs/cpdf/fetch.py
-          mkdir -p .tools/wisp-pkgs/cpdf/dist
-          python3 .tools/wisp-pkgs/cpdf/verify.py --rebuild --ocaml-toolchain "$WISP_OCAML_TOOLCHAIN"
-          cp .tools/wisp-pkgs/cpdf/dist/verification.json evidence/ocaml/cpdf.json
       - name: Retain bounded acceptance evidence
         if: always()
+        env:
+          ACCEPTANCE_STATUS: ${{ job.status }}
+          BUILDTOOLS_REF: ${{ inputs.buildtools_ref }}
         run: |
           python3 - <<'PY'
-          import os, shutil
+          import json, os, shutil
           from pathlib import Path
           source = Path(os.environ['RUNNER_TEMP'])/'ocaml'
           out = Path('evidence/ocaml'); out.mkdir(parents=True,exist_ok=True)
+          (out/'workflow.json').write_text(json.dumps({k:os.environ.get(k) for k in (
+              'ACCEPTANCE_STATUS','GITHUB_SHA','GITHUB_RUN_ID','GITHUB_RUN_ATTEMPT','BUILDTOOLS_REF')},indent=2)+'\n')
           for name in ('setup.json','result.json','commands.json'):
               p=source/name
               if p.is_file() and p.stat().st_size < 4*1024**2: shutil.copyfile(p,out/name)
+          for p in sorted((source/'logs').glob('*.log'))[:100]:
+              with p.open('rb') as stream:
+                  stream.seek(max(0,p.stat().st_size-65536))
+                  (out/p.name).write_bytes(stream.read(65536))
           PY
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         if: always()

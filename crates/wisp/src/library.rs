@@ -682,7 +682,7 @@ impl Library {{
     }}
 }}
 "#, binding=world.name.to_upper_camel_case(), store_type=if wasi {"WasiState"}else{"()"},
-store_value=if pure || reactor {crate::library_wasi::PURE_STORE}else if wasi {crate::library_wasi::STORE}else{"()"}, linker_init=if pure {crate::library_wasi::PURE_LINKER_CALL}else if reactor {crate::library_wasi::REACTOR_LINKER}else if wasi {crate::library_wasi::LINKER}else{""}, engine_init=if asynchronous {"let mut config = wasmtime::Config::new(); config.wasm_component_model(true).wasm_component_model_async(true).wasm_component_model_error_context(true).wasm_component_model_more_async_builtins(true).wasm_component_model_async_stackful(true).concurrency_support(true); let engine = wasmtime::Engine::new(&config)?;"}else{"let engine = wasmtime::Engine::default();"}));
+store_value=if pure || reactor {crate::library_wasi::PURE_STORE}else if wasi {crate::library_wasi::STORE}else{"()"}, linker_init=if pure {crate::library_wasi::PURE_LINKER_CALL}else if reactor {crate::library_wasi::REACTOR_LINKER}else if wasi {crate::library_wasi::LINKER}else{""}, engine_init=if asynchronous {"let mut config = wasmtime::Config::new(); config.wasm_component_model(true).wasm_component_model_async(true).wasm_component_model_error_context(true).wasm_component_model_more_async_builtins(true).wasm_component_model_async_stackful(true).concurrency_support(true); let engine = wasmtime::Engine::new(&config)?;"}else if reactor {"let mut config = wasmtime::Config::new(); config.wasm_exceptions(true); let engine = wasmtime::Engine::new(&config)?;"}else{"let engine = wasmtime::Engine::default();"}));
     if wasi {
         source.push_str(crate::library_wasi::STATE);
     }

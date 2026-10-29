@@ -89,9 +89,12 @@ Run the **OCaml installed source acceptance** workflow with an exact
 `wisp-sh/wisp-buildtools` commit. It checks the candidate CLI, downloads pinned
 unchanged compiler payloads, packages the changed adapters, installs them into a
 fresh prefix and executes application builds with networking disabled. It then
-installs the generated npm and Cargo archives, exercises 200 calls with GC, and
-rebuilds CPDF using the installed OCaml package. The uploaded evidence records
-candidate hashes and individual checks. A skipped compiler job or a saved
+installs the generated npm and Cargo archives and exercises 200 calls with GC.
+CPDF regression acceptance runs separately in the private `wisp-sh/wisp-pkgs`
+repository, using the same exact candidate revisions and `setup.py --flat-install`
+to freshly package and install the changed adapter before `verify.py --rebuild`.
+Both runs are required. Their uploaded evidence records candidate hashes and
+individual checks. A skipped compiler job or a saved
 verification JSON is not acceptance evidence. The workflow publishes no releases
 or registry artifacts.
 
