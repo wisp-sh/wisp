@@ -22,8 +22,9 @@ wisp build examples/build-csharp --component-only --out out/csharp-library
 # ok({name: "Ana", age: 42})
 ```
 
-`entry` names the public static type. Method names match authored WIT exports by
-name and signature. The contract covers strings, nested records/lists, options,
+`entry` names the public type whose static methods form the public API. Roslyn
+discovers their signatures in Wasm; no WIT is needed for this project. The
+inferred contract covers strings, nested records/lists, options,
 results, enums/flags, tuples, integer widths and floating point. `add.cs` and
 `library.wit` at this directory's root retain the original one-file scalar example
 for direct adapter use.
@@ -34,7 +35,26 @@ and declare exact `PackageReference` versions, or use a local assembly
 the package directory to the compiler. No SDK or network restore runs during
 source builds. Project references must remain inside `build.project`.
 
-WIT imports, resources, general variants, async and source inference are not
-implemented. Project metadata supports a static subset of MSBuild; custom tasks,
+WIT imports, resources, general variants and async are not implemented. Project metadata supports a static subset of MSBuild; custom tasks,
 conditions, generators and native packages are rejected. Runtime APIs depend on
 the WASI BCL. Each Component is roughly 21 MiB and runs interpreted C#.
+
+Omit `--component-only` to emit normal Cargo and npm packages as well. The emitted
+`api` interface uses the package identity `example:csharp-library@1.0.0`.
+Generated bindings and receipts remain under the output's `build/` directory.
+For an authored contract, add these settings to `[build]`:
+
+```toml
+wit = "library/library.wit"
+world = "library"
+```
+
+The [C# acceptance workflow](../../.github/workflows/csharp-acceptance.yml)
+bootstraps a pinned compiler commit on GitHub, installs its ZIP and wasm-tools
+into a fresh prefix, hides the compiler checkout, then disables network access.
+It executes authored and inferred rich APIs, installs the generated npm archive,
+runs a Cargo consumer of the emitted crate, changes a referenced source file and
+checks that the changed result is rebuilt. Compiler-package CI also checks
+multiple loose files, offline DLL/NuGet dependencies, unsupported public APIs,
+managed exception traps and more than 300 calls in each rich Component instance.
+Neither workflow publishes a release or a registry package.

@@ -58,17 +58,21 @@ and version. The generated and selected contracts stay under `build/units/`.
 | `grain` | Raw scalar exports with an adjacent or authored WIT contract; heap values require ABI conversion |
 | `bend` | Bend 2 direct `U32`/`F32` function exports through the JavaScript backend; sequential execution |
 | `swift` | Scalar exports with matching Wasm export attributes; aggregates require ABI conversion |
-| `csharp` | Experimental Mono interpreter; multiple files, directories or offline `net8.0` projects. Authored scalar and rich WIT exports; optional `entry = "Namespace.Type"`. |
+| `csharp` | Experimental Mono interpreter; multiple files, directories or offline `net8.0` projects. Semantic public static API discovery and authored rich WIT exports; optional `entry = "Namespace.Type"`. |
 | `java`, `kotlin` | TeaVM scalar exports; set `entry` to the main class, such as `Math` or `MathKt` |
 | `python` | Default scalar `wisp:python/api@0.1.0` adapter, or multiple typed exports through an authored WIT contract and a separately provisioned runtime template |
 
-C# requires `build.wit` and `build.world`, or an adjacent `.wit` contract.
+C# discovers public static methods and supported data types using Wasm-hosted
+Roslyn when no contract is supplied. Select authored WIT with `build.wit` and
+`build.world`, or an adjacent `.wit` contract.
 Select the adapter with `build.tools.csharp` or `WISP_CSHARP_TOOLCHAIN`. Roslyn
 compiles source, project references and typed bindings inside Mono WASI; a fixed
 Mono interpreter executes the output IL. Native .NET and WASI SDK tools are
 bootstrap-only. Multiple root/interface exports support all scalars, Unicode
 strings, lists, records, tuples, enums, flags, options and results. `entry` names
-a public static type when automatic method matching would be ambiguous.
+a public type to limit discovery or resolve authored method matching. Public
+static overloads, unsupported types and normalized-name collisions fail inference
+rather than dropping part of the API. Nullable annotations become options.
 
 Use `build.project` as the common parent of sources and `ProjectReference`
 dependencies. Local managed `Reference/HintPath` DLLs stay inside that project.

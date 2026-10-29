@@ -1081,6 +1081,12 @@ pub fn run_cli(args: &[String]) -> Result<Value> {
             )?;
             if let Some(contracts) = &inferred_contracts {
                 check_inferred_sources(contracts, name, &files)?;
+                if contracts.complete_sources.contains(name) {
+                    ensure!(
+                        contracts.sources[name] == files,
+                        "C# source inventory changed during API discovery; rebuild the project"
+                    );
+                }
             }
             component
         } else {

@@ -318,20 +318,14 @@ impl Toolchain {
         Ok(notices)
     }
 
-    #[allow(clippy::too_many_arguments)]
-    pub(super) fn compile(
+    fn snapshot_inputs(
         &self,
         root: &Path,
         unit: &Unit,
         source: &Path,
-        scratch: &Path,
-        cache: &Path,
-        resolve: &Resolve,
-        world: WorldId,
         files: &mut BTreeMap<String, String>,
         total: &mut u64,
-        commands: &mut Vec<Value>,
-    ) -> Result<Vec<u8>> {
+    ) -> Result<(Vec<PathBuf>, PathBuf)> {
         let project = unit
             .project
             .as_ref()
@@ -380,6 +374,100 @@ impl Toolchain {
             Some(project) => source.join(project.strip_prefix(root)?),
             None => common_parent(&sources)?,
         };
+        Ok((sources, module_root))
+    }
+
+    /// Roslyn discovers the API from the same bounded project snapshot as emission.
+    pub(super) fn discover_csharp(
+        &self,
+        root: &Path,
+        unit: &Unit,
+    ) -> Result<(String, BTreeMap<String, String>)> {
+        ensure!(
+            matches!(self.compiler, Compiler::Csharp),
+            "C# discovery toolchain"
+        );
+        validate(self.compiler, unit)?;
+        let stage = tempfile::tempdir()?;
+        let source = stage.path().join("source");
+        let cache = stage.path().join("cache");
+        fs::create_dir(&source)?;
+        fs::create_dir(&cache)?;
+        let mut files = BTreeMap::new();
+        let mut total = 0;
+        let (sources, module_root) =
+            self.snapshot_inputs(root, unit, &source, &mut files, &mut total)?;
+        let output = stage.path().join("api.wit");
+        let mut command = Command::new(&self.python.path);
+        command
+            .arg(&self.script.path)
+            .args(&sources)
+            .arg("--discover")
+            .arg("--output")
+            .arg(&output)
+            .arg("--project-root")
+            .arg(&module_root);
+        if let Some(entry) = &unit.entry {
+            command.arg("--entry").arg(entry);
+        }
+        let packages = module_root.join("packages");
+        if packages.is_dir() {
+            command.arg("--package-dir").arg(packages);
+        }
+        command
+            .current_dir(&source)
+            .env_clear()
+            .env("PATH", std::env::var_os("PATH").unwrap_or_default())
+            .env("HOME", &cache)
+            .env("XDG_CACHE_HOME", &cache)
+            .env("PYTHONDONTWRITEBYTECODE", "1")
+            .env("TMPDIR", stage.path())
+            .envs(&self.environment)
+            .stdin(Stdio::null());
+        if let Some(path) = std::env::var_os("WISP_NATIVE_TOOL_ATTEMPTS") {
+            command.env("WISP_NATIVE_TOOL_ATTEMPTS", path);
+        }
+        let result = command
+            .output()
+            .context("discovering C# public API in Wasm")?;
+        ensure!(
+            result.status.success(),
+            "C# API discovery failed: {}{}",
+            String::from_utf8_lossy(&result.stdout),
+            String::from_utf8_lossy(&result.stderr)
+        );
+        ensure!(
+            digest(&read(&self.script.path, MAX_SOURCE)?) == self.script.sha256,
+            "compiler adapter changed during discovery"
+        );
+        let receipt: Value =
+            serde_json::from_slice(&read(&stage.path().join("api.wit.build.json"), MAX_SOURCE)?)?;
+        ensure!(
+            receipt["mode"] == "discover" && receipt["sourceCompilationWasmHosted"] == true,
+            "C# compiler did not report Wasm API discovery"
+        );
+        let api = receipt["api"]
+            .as_str()
+            .context("C# discovery declarations")?
+            .to_owned();
+        Ok((api, files))
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn compile(
+        &self,
+        root: &Path,
+        unit: &Unit,
+        source: &Path,
+        scratch: &Path,
+        cache: &Path,
+        resolve: &Resolve,
+        world: WorldId,
+        files: &mut BTreeMap<String, String>,
+        total: &mut u64,
+        commands: &mut Vec<Value>,
+    ) -> Result<Vec<u8>> {
+        let (sources, module_root) = self.snapshot_inputs(root, unit, source, files, total)?;
         let wit = scratch.join("world.wit");
         write(&wit, world_text(resolve, world)?)?;
         let output = scratch.join("output.wasm");

@@ -1,0 +1,133 @@
+name: C# compiler and installed consumer acceptance
+on:
+  push:
+    branches: [feature/csharp]
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'crates/wisp/src/build*.rs'
+      - 'crates/wisp/src/toolchain_install.rs'
+      - 'examples/build-csharp/**'
+      - 'tests/source-build/csharp.py'
+      - '.github/workflows/csharp-acceptance.yml'
+permissions:
+  contents: read
+concurrency:
+  group: csharp-acceptance-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  contract:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Check acceptance driver syntax
+        run: python3 -c "import ast, pathlib; ast.parse(pathlib.Path('tests/source-build/csharp.py').read_text())"
+  csharp:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    env:
+      CARGO_BUILD_JOBS: '1'
+      CARGO_INCREMENTAL: '0'
+      PYTHONDONTWRITEBYTECODE: '1'
+      RUSTUP_TOOLCHAIN: '1.98.1'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: wisp-sh/wisp-buildtools
+          ref: b4e22da79440a0c427768f4b3e9756a6d896c138
+          path: .compiler
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.13'
+      - name: Prepare disposable hosted runner
+        run: |
+          set -euo pipefail
+          sudo rm -rf -- /usr/share/dotnet /usr/local/lib/android /usr/local/.ghcup /opt/hostedtoolcache/CodeQL
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends --yes build-essential cmake curl libbrotli1 ninja-build patch pkg-config unzip xz-utils
+          mkdir -p evidence/csharp .tools/csharp-hosts .tools/csharp-bundles
+          echo "TMPDIR=$RUNNER_TEMP" >> "$GITHUB_ENV"
+          free -h
+          df -h . "$RUNNER_TEMP"
+          df -i . "$RUNNER_TEMP"
+          findmnt -T "$RUNNER_TEMP"
+          ps -eo pid,comm,rss --sort=-rss | head -20
+      - name: Provision pinned bootstrap and execution tools
+        run: python3 .compiler/tools/ci-prerequisites.py install csharp > evidence/csharp/prerequisites.log 2>&1
+      - name: Bootstrap, execute and package the changed Wasm compiler
+        working-directory: .compiler
+        run: |
+          set -euo pipefail
+          python3 build.py build csharp --jobs 1 > ../evidence/csharp/compiler-build.log 2>&1
+          python3 build.py test csharp --jobs 1 > ../evidence/csharp/compiler-test.log 2>&1
+          cp csharp/verification.json ../evidence/csharp/compiler-verification.json
+          for tool in csharp wasm-tools; do
+            python3 build.py package "$tool" --jobs 1 --output-dir ../.tools/csharp-bundles >> ../evidence/csharp/package.log 2>&1
+          done
+      - name: Provision package generators and build the changed Wisp CLI
+        run: |
+          set -euo pipefail
+          python3 tests/library-chain/setup.py > evidence/csharp/consumer-setup.log 2>&1
+          cargo build --locked --offline -p wisp -p wisp-worker > evidence/csharp/wisp-build.log 2>&1
+          cargo test --locked --offline -p wisp --bin wisp --test build --test cli -- --test-threads=1 > evidence/csharp/wisp-tests.log 2>&1
+          echo "WISP_WORKER=$PWD/target/debug/wisp-worker" >> "$GITHUB_ENV"
+          echo "$PWD/.tools/library-chain-node/node/bin" >> "$GITHUB_PATH"
+          echo "WISP_NODE=$PWD/.tools/library-chain-node/node/bin/node" >> "$GITHUB_ENV"
+          echo "WISP_JCO=$PWD/.tools/library-js/node_modules/.bin/jco" >> "$GITHUB_ENV"
+          echo "CARGO_TARGET_DIR=$PWD/target" >> "$GITHUB_ENV"
+      - name: Remove recipe checkout from installed application use
+        run: |
+          set -euo pipefail
+          cp "$WISP_CWASM_RUNTIME" .tools/csharp-hosts/wasmtime
+          cp .compiler/csharp/verify_component.py .tools/csharp-hosts/verify_component.py
+          cp -a "$WISP_WASMTIME_PYTHON" .tools/csharp-hosts/python
+          echo "WISP_WASMTIME=$PWD/.tools/csharp-hosts/wasmtime" >> "$GITHUB_ENV"
+          echo "WISP_CWASM_RUNTIME=$PWD/.tools/csharp-hosts/wasmtime" >> "$GITHUB_ENV"
+          echo "WISP_WASMTIME_PYTHON=$PWD/.tools/csharp-hosts/python" >> "$GITHUB_ENV"
+          echo "WISP_CSHARP_ACCEPTANCE_BINDINGS=$PWD/.tools/csharp-hosts/python" >> "$GITHUB_ENV"
+          mv .compiler "$RUNNER_TEMP/csharp-recipe-unavailable"
+      - name: Build offline projects from fresh installs and execute archive consumers
+        run: |
+          set -euo pipefail
+          sudo unshare --net --setuid "$(id -u)" --setgid "$(id -g)" \
+            env PATH="$PATH" HOME="$HOME" TMPDIR="$TMPDIR" \
+              CARGO_TARGET_DIR="$CARGO_TARGET_DIR" RUSTUP_TOOLCHAIN=1.98.1 \
+              WISP_WORKER="$WISP_WORKER" WISP_NODE="$WISP_NODE" WISP_JCO="$WISP_JCO" \
+              WISP_WASMTIME="$WISP_WASMTIME" \
+            python3 tests/source-build/csharp.py --cli target/debug/wisp \
+              --bundles .tools/csharp-bundles --out out/csharp-acceptance \
+              --verify-component .tools/csharp-hosts/verify_component.py \
+              --bindings "$WISP_CSHARP_ACCEPTANCE_BINDINGS" \
+            > evidence/csharp/installed-acceptance.log 2>&1
+      - name: Retain bounded execution evidence
+        if: always()
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import shutil
+          root = Path('evidence/csharp')
+          root.mkdir(parents=True, exist_ok=True)
+          result = Path('out/csharp-acceptance/result.json')
+          if result.is_file(): shutil.copyfile(result, root / 'installed-result.json')
+          logs = Path('out/csharp-acceptance/logs')
+          for path in sorted(logs.glob('*.log'))[-40:]:
+              with path.open('rb') as stream:
+                  stream.seek(max(0, path.stat().st_size - 256 * 1024))
+                  (root / ('acceptance-' + path.name)).write_bytes(stream.read())
+          for path in root.glob('*.log'):
+              if path.stat().st_size > 1024 * 1024:
+                  with path.open('rb') as stream:
+                      stream.seek(-1024 * 1024, 2)
+                      tail = stream.read()
+                  path.write_bytes(tail)
+          PY
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+        if: always()
+        with:
+          name: csharp-executed-acceptance
+          path: evidence/csharp
+          if-no-files-found: error
+          retention-days: 7

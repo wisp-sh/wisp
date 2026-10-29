@@ -7,5 +7,3 @@ compiler = "csharp"
 project = "library"
 sources = ["library/Api/Api.csproj"]
 entry = "Example.Api"
-wit = "library/library.wit"
-world = "library"
