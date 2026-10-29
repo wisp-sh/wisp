@@ -1093,6 +1093,9 @@ pub fn run_cli(args: &[String]) -> Result<Value> {
                 inferred_contracts
                     .as_ref()
                     .is_some_and(|contracts| contracts.python_inferred.contains(name)),
+                inferred_contracts
+                    .as_ref()
+                    .and_then(|contracts| contracts.sources.get(name)),
                 &mut files,
                 &mut total,
                 &mut commands,

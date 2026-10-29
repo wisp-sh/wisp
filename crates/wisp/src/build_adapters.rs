@@ -109,6 +109,33 @@ fn executable(
     })
 }
 
+#[allow(clippy::too_many_arguments)]
+pub(super) fn stage_discovered_inputs(
+    root: &Path,
+    destination: &Path,
+    compiler: Compiler,
+    discovered: &BTreeMap<String, String>,
+    expected_sources: Option<&BTreeMap<String, String>>,
+    files: &mut BTreeMap<String, String>,
+    total: &mut u64,
+) -> Result<()> {
+    ensure!(
+        expected_sources.is_none_or(|expected| expected == discovered),
+        "{} source inventory changed while inferring the public API; rebuild the project",
+        compiler.name()
+    );
+    for (path, expected) in discovered {
+        let absolute = input(root, Path::new(path))?;
+        adapter_copy_file(root, &absolute, destination, compiler, files, total)?;
+        ensure!(
+            files.get(path) == Some(expected),
+            "{} input changed during staging: {path}",
+            compiler.name()
+        );
+    }
+    Ok(())
+}
+
 impl Toolchain {
     pub(super) fn python_analysis(
         &self,
@@ -345,6 +372,7 @@ impl Toolchain {
         resolve: &Resolve,
         world: WorldId,
         python_inferred: bool,
+        expected_sources: Option<&BTreeMap<String, String>>,
         files: &mut BTreeMap<String, String>,
         total: &mut u64,
         commands: &mut Vec<Value>,
@@ -360,23 +388,37 @@ impl Toolchain {
             let entry = input(root, &unit.sources[0])?;
             let analysis =
                 self.python_analysis(&entry, root, project.as_deref(), true, &[cache, scratch])?;
-            for (path, expected) in analysis["inputs"]
+            let discovered = analysis["inputs"]
                 .as_object()
                 .context("Python staging inputs")?
-            {
-                let relative = Path::new(path)
-                    .strip_prefix(root)
-                    .context("Python staging input escapes project root")?;
-                let absolute = input(root, relative)?;
-                adapter_copy_file(root, &absolute, source, self.compiler, files, total)?;
-                ensure!(
-                    files
-                        .get(&relative.to_string_lossy().replace('\\', "/"))
-                        .map(String::as_str)
-                        == expected.as_str(),
-                    "Python input changed during staging: {path}"
-                );
-            }
+                .iter()
+                .map(|(path, hash)| {
+                    let relative = Path::new(path)
+                        .strip_prefix(root)
+                        .context("Python staging input escapes project root")?
+                        .to_str()
+                        .context("UTF8 Python staging path")?
+                        .replace('\\', "/");
+                    Ok((
+                        relative,
+                        hash.as_str().context("Python staging hash")?.to_owned(),
+                    ))
+                })
+                .collect::<Result<BTreeMap<_, _>>>()?;
+            let expected = if python_inferred {
+                Some(expected_sources.context("Python inferred input inventory is missing")?)
+            } else {
+                None
+            };
+            stage_discovered_inputs(
+                root,
+                source,
+                self.compiler,
+                &discovered,
+                expected,
+                files,
+                total,
+            )?;
         }
         if let Some(project) = &project {
             ensure!(project.is_dir(), "adapter project must be a directory");
@@ -832,6 +874,48 @@ mod tests {
     }
 
     #[test]
+    fn discovered_inventory_rejects_added_removed_and_changed_inputs_before_staging() {
+        let project = tempfile::tempdir().unwrap();
+        write(project.path().join("main.py"), "original").unwrap();
+        let expected = BTreeMap::from([("main.py".to_owned(), digest(b"original"))]);
+        let changed = BTreeMap::from([("main.py".to_owned(), digest(b"changed"))]);
+        let mut added = expected.clone();
+        added.insert("new.py".into(), digest(b"new"));
+        let destination = project.path().join("staged");
+        for discovered in [added, BTreeMap::new(), changed] {
+            let mut files = BTreeMap::new();
+            let mut total = 0;
+            let error = stage_discovered_inputs(
+                project.path(),
+                &destination,
+                Compiler::Python,
+                &discovered,
+                Some(&expected),
+                &mut files,
+                &mut total,
+            )
+            .unwrap_err();
+            assert!(error.to_string().contains("source inventory changed"));
+            assert!(files.is_empty());
+            assert_eq!(total, 0);
+            assert!(!destination.exists());
+        }
+        // Discovery can be unchanged while the actual bytes change before copy.
+        write(project.path().join("main.py"), "changed").unwrap();
+        let error = stage_discovered_inputs(
+            project.path(),
+            &destination,
+            Compiler::Python,
+            &expected,
+            Some(&expected),
+            &mut BTreeMap::new(),
+            &mut 0,
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("input changed during staging"));
+    }
+
+    #[test]
     fn distinguishes_legacy_python_api_from_authored_contracts() {
         let mut resolve = Resolve::default();
         let package = resolve.push_str("legacy.wit", "package wisp:python@0.1.0; interface api { validate: func() -> result<_, string>; add: func(a: s32, b: s32) -> s32; runtime-info: func() -> string; } world legacy { export api; }").unwrap();
@@ -1018,6 +1102,14 @@ mod tests {
             let mut total = 0;
             let mut commands = Vec::new();
             let mut source_unit = unit(compiler, filename);
+            let expected_sources = matches!(compiler, Compiler::Python).then(|| {
+                BTreeMap::from([
+                    (filename.to_owned(), digest(b"source payload")),
+                    ("main.wit".into(), digest(b"contract snapshot")),
+                    ("answer.txt".into(), digest(b"*")),
+                    ("dist/requirements.txt".into(), digest(b"local==1.0")),
+                ])
+            });
             if matches!(compiler, Compiler::Python) {
                 source_unit.project = Some(".".into());
             }
@@ -1031,6 +1123,7 @@ mod tests {
                     &resolve,
                     world,
                     matches!(compiler, Compiler::Python),
+                    expected_sources.as_ref(),
                     &mut files,
                     &mut total,
                     &mut commands,
