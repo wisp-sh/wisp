@@ -1,0 +1,9 @@
+[package]
+name = "example:csharp-library"
+version = "1.0.0"
+
+[build]
+compiler = "csharp"
+project = "library"
+sources = ["library/Api/Api.csproj"]
+entry = "Example.Api"
