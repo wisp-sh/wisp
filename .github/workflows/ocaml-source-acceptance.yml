@@ -45,6 +45,9 @@ jobs:
     env:
       CARGO_BUILD_JOBS: '1'
       CARGO_INCREMENTAL: '0'
+      # This host JITs the full shared LLVM compiler. Optimize the host's
+      # Cranelift/Wasmtime code as well as the CLI before executing that workload.
+      CARGO_PROFILE_DEV_OPT_LEVEL: '2'
       PYTHONDONTWRITEBYTECODE: '1'
     steps:
       - name: Report public installed acceptance as pending on the tested commit

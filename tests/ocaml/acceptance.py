@@ -9,6 +9,7 @@ import shutil
 import subprocess
 import sys
 import tarfile
+import time
 import tomllib
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -33,9 +34,11 @@ def main():
         path=logs/f'{index:03}.stdout.log'
         errors=logs/f'{index:03}.stderr.log'
         print('+ '+' '.join(argv),flush=True)
+        started=time.monotonic()
         with path.open('w') as stream, errors.open('w') as stderr:
             result=subprocess.run(argv,cwd=cwd,env=environment,stdin=subprocess.DEVNULL,stdout=stream,stderr=stderr,timeout=3600)
-        commands.append({'argv':argv,'cwd':str(cwd),'exitCode':result.returncode,'log':str(path),'stderrLog':str(errors)})
+        commands.append({'argv':argv,'cwd':str(cwd),'exitCode':result.returncode,
+                         'elapsedSeconds':round(time.monotonic()-started,3),'log':str(path),'stderrLog':str(errors)})
         (out/'commands.json').write_text(json.dumps(commands,indent=2)+'\n')
         if (result.returncode==0)!=success:
             print(path.read_text()[-24000:],file=sys.stderr)
