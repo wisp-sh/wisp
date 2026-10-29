@@ -15,7 +15,9 @@ permissions:
   contents: read
 concurrency:
   group: ocaml-source-${{ github.event_name }}-${{ github.ref }}
-  cancel-in-progress: true
+  # Preserve compiler diagnostics from an active dispatch when main is merged.
+  # The next exact-commit acceptance waits for it instead of cancelling it.
+  cancel-in-progress: false
 jobs:
   contracts:
     runs-on: ubuntu-24.04
