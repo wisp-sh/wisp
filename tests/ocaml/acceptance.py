@@ -85,7 +85,10 @@ def main():
     (npm/'package.json').write_text('{"private":true,"type":"module"}\n')
     shutil.copyfile(ROOT/'tests/ocaml/consumer.mjs',npm/'consumer.mjs')
     run(['npm','install','--offline','--ignore-scripts','--no-audit','--no-fund',release/'node.tgz'],cwd=npm)
-    run(['node','consumer.mjs'],cwd=npm)
+    package_report=json.loads((release/'library-release.json').read_text())
+    node_flags=package_report['targetRequirements']['node']['flags']
+    assert '--experimental-wasm-exnref' in node_flags
+    run(['node',*node_flags,'consumer.mjs'],cwd=npm)
     rust=out/'rust'; rust.mkdir(); (rust/'src').mkdir()
     crate=out/'installed-rust'; crate.mkdir()
     with tarfile.open(release/'rust.crate') as archive: archive.extractall(crate,filter='data')

@@ -12,6 +12,9 @@ The installed acceptance uses the candidate Wisp worker for compiler and
 application execution, including modern Wasm exceptions. An ordinary Wasmtime
 50 host with exception support also works. A minimal CLI built without the
 required Wasmtime GC support cannot enable this exception configuration.
+Generated npm packages declare Node's `--experimental-wasm-exnref` runtime flag
+in `library-release.json` under `targetRequirements.node.flags`. Pass the declared
+flags when starting the consuming Node application.
 
 ```toml
 [package]
