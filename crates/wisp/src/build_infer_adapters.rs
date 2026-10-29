@@ -7,6 +7,7 @@ pub(super) fn python_contract(
     unit: &Unit,
     tools: &Tools,
     resolve: &mut Resolve,
+    excluded_paths: &[&Path],
 ) -> Result<(String, BTreeMap<String, String>, bool)> {
     crate::build::adapters::validate(Compiler::Python, unit)?;
     let source = input(root, &unit.sources[0])?;
@@ -21,7 +22,8 @@ pub(super) fn python_contract(
         .as_ref()
         .map(|path| input(root, path))
         .transpose()?;
-    let analysis = toolchain.python_analysis(&source, root, project.as_deref(), false)?;
+    let analysis =
+        toolchain.python_analysis(&source, root, project.as_deref(), false, excluded_paths)?;
     let declarations = analysis["declarations"]
         .as_str()
         .context("Python inferred declarations")?

@@ -116,6 +116,7 @@ impl Toolchain {
         root: &Path,
         package_root: Option<&Path>,
         inputs_only: bool,
+        excluded_paths: &[&Path],
     ) -> Result<Value> {
         let script = self.script.path.with_file_name("infer.py");
         let mut command = Command::new(&self.python.path);
@@ -131,6 +132,9 @@ impl Toolchain {
             .arg(root);
         if let Some(path) = package_root {
             command.arg("--package-root").arg(path);
+        }
+        for path in excluded_paths {
+            command.arg("--exclude-path").arg(path);
         }
         let result = command
             .env_clear()
@@ -354,17 +358,24 @@ impl Toolchain {
         let mut directories = BTreeSet::new();
         if matches!(self.compiler, Compiler::Python) {
             let entry = input(root, &unit.sources[0])?;
-            let analysis = self.python_analysis(&entry, root, project.as_deref(), true)?;
-            for path in analysis["inputs"]
+            let analysis =
+                self.python_analysis(&entry, root, project.as_deref(), true, &[cache, scratch])?;
+            for (path, expected) in analysis["inputs"]
                 .as_object()
                 .context("Python staging inputs")?
-                .keys()
             {
                 let relative = Path::new(path)
                     .strip_prefix(root)
                     .context("Python staging input escapes project root")?;
                 let absolute = input(root, relative)?;
                 adapter_copy_file(root, &absolute, source, self.compiler, files, total)?;
+                ensure!(
+                    files
+                        .get(&relative.to_string_lossy().replace('\\', "/"))
+                        .map(String::as_str)
+                        == expected.as_str(),
+                    "Python input changed during staging: {path}"
+                );
             }
         }
         if let Some(project) = &project {
@@ -398,8 +409,10 @@ impl Toolchain {
             }
             sources.push(source.join(absolute.strip_prefix(root)?));
         }
-        for directory in directories {
-            snapshot(root, &directory, source, self.compiler, files, total)?;
+        if !matches!(self.compiler, Compiler::Python) {
+            for directory in directories {
+                snapshot(root, &directory, source, self.compiler, files, total)?;
+            }
         }
         let module_root = match &project {
             Some(project) => source.join(project.strip_prefix(root)?),
@@ -466,7 +479,7 @@ impl Toolchain {
                 .into(),
             ]),
             Compiler::Python => {
-                if !legacy_python_contract(resolve, world) {
+                if !legacy_python_contract(resolve, world)? {
                     argv.extend([
                         "--dependency-root".into(),
                         source.to_string_lossy().into_owned(),
@@ -572,19 +585,29 @@ impl Toolchain {
     }
 }
 
-fn legacy_python_contract(resolve: &Resolve, world: WorldId) -> bool {
+fn legacy_python_contract(resolve: &Resolve, world: WorldId) -> Result<bool> {
     let exports = &resolve.worlds[world].exports;
     if exports.len() != 1 {
-        return false;
+        return Ok(false);
     }
     let Some(WorldItem::Interface { id, .. }) = exports.values().next() else {
-        return false;
+        return Ok(false);
     };
     let interface = &resolve.interfaces[*id];
-    interface.name.as_deref() == Some("api")
+    if !(interface.name.as_deref() == Some("api")
         && interface.package.is_some_and(|package| {
             resolve.packages[package].name.to_string() == "wisp:python@0.1.0"
-        })
+        }))
+    {
+        return Ok(false);
+    }
+    let mut legacy = Resolve::default();
+    let package = legacy.push_str("python-legacy.wit", "package wisp:python@0.1.0; interface api { validate: func() -> result<_, string>; add: func(a: s32, b: s32) -> s32; runtime-info: func() -> string; } world library { export api; }")?;
+    let legacy_world = legacy.select_world(&[package], Some("library"))?;
+    Ok(crate::library::exports_match(
+        &crate::wit_model::AbiModel::from_resolve(resolve, world)?,
+        &crate::wit_model::AbiModel::from_resolve(&legacy, legacy_world)?,
+    ))
 }
 
 fn wit_args(
@@ -811,12 +834,16 @@ mod tests {
     #[test]
     fn distinguishes_legacy_python_api_from_authored_contracts() {
         let mut resolve = Resolve::default();
-        let package = resolve.push_str("legacy.wit", "package wisp:python@0.1.0; interface api { add: func(a: s32, b: s32) -> s32; } world legacy { export api; }").unwrap();
+        let package = resolve.push_str("legacy.wit", "package wisp:python@0.1.0; interface api { validate: func() -> result<_, string>; add: func(a: s32, b: s32) -> s32; runtime-info: func() -> string; } world legacy { export api; }").unwrap();
         let world = resolve.select_world(&[package], Some("legacy")).unwrap();
-        assert!(legacy_python_contract(&resolve, world));
+        assert!(legacy_python_contract(&resolve, world).unwrap());
         let package = resolve.push_str("library.wit", "package demo:python@0.1.0; world library { export greet: func(name: string) -> string; }").unwrap();
         let world = resolve.select_world(&[package], Some("library")).unwrap();
-        assert!(!legacy_python_contract(&resolve, world));
+        assert!(!legacy_python_contract(&resolve, world).unwrap());
+        let mut resolve = Resolve::default();
+        let package = resolve.push_str("authored.wit", "package wisp:python@0.1.0; interface api { add: func(a: s64, b: s64) -> s64; } world library { export api; }").unwrap();
+        let world = resolve.select_world(&[package], Some("library")).unwrap();
+        assert!(!legacy_python_contract(&resolve, world).unwrap());
     }
 
     #[test]
@@ -948,11 +975,18 @@ mod tests {
                 let metadata = root.join("dist/requirements.txt");
                 write(&metadata, "local==1.0").unwrap();
                 write(root.join("out/previous.wasm"), "old generated output").unwrap();
+                write(root.join("unused.bin"), "not selected by Python discovery").unwrap();
+                let inventory = BTreeMap::from([
+                    (root.join(filename), digest(b"source payload")),
+                    (root.join("main.wit"), digest(b"contract snapshot")),
+                    (root.join("answer.txt"), digest(b"*")),
+                    (metadata.clone(), digest(b"local==1.0")),
+                ]);
                 write(
                     temp.path().join("infer.py"),
                     format!(
-                        "import json\nprint(json.dumps({{'inputs': {{{:?}: 'hash'}}}}))",
-                        metadata.to_str().unwrap()
+                        "print({:?})",
+                        serde_json::json!({"inputs": inventory}).to_string()
                     ),
                 )
                 .unwrap();
@@ -1013,6 +1047,7 @@ mod tests {
             assert_eq!(commands[0]["status"], 0);
             if matches!(compiler, Compiler::Python) {
                 assert!(!files.contains_key("out/previous.wasm"));
+                assert!(!files.contains_key("unused.bin"));
                 assert_eq!(
                     files.get("dist/requirements.txt"),
                     Some(&digest(b"local==1.0"))
@@ -1075,7 +1110,7 @@ mod tests {
             environment: BTreeMap::new(),
         };
         let analysis = toolchain
-            .python_analysis(&source, temp.path(), None, false)
+            .python_analysis(&source, temp.path(), None, false, &[])
             .unwrap();
         let wit = analysis["declarations"].as_str().unwrap();
         Resolve::default()
@@ -1092,7 +1127,7 @@ mod tests {
         )
         .unwrap();
         let error = toolchain
-            .python_analysis(&source, temp.path(), None, false)
+            .python_analysis(&source, temp.path(), None, false, &[])
             .unwrap_err()
             .to_string();
         assert!(error.contains("function bad: unsupported Python type dict[str, int]"));

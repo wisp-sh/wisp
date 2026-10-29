@@ -7,7 +7,10 @@ asks guest CPython to infer the contract, then obtains a matching runtime from
 the installed Python toolchain. No authored WIT or manual template command is
 needed. Local package imports still work through `project = "."`.
 
-Install a current Python toolchain and configure Wisp's execution hosts. For a
+Install checksum-pinned `python.wisp.zip` and `wasm-tools.wisp.zip` bundles with
+`wisp toolchain install`, then configure Wisp's execution hosts. The
+[Python acceptance checklist](../../docs/python-source-support.md) describes the
+clean installation and real consumer checks. For a
 local buildtools checkout, run `python3 python/bootstrap.py` once there and set
 `WISP_PYTHON_TOOLCHAIN` to its `python` directory. Automatic provisioning currently
 uses the package's Linux x86_64 bootstrap tools. Then:

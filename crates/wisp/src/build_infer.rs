@@ -351,6 +351,7 @@ pub(super) fn generate(
     config: &mut Config,
     root: &Path,
     resolve: &mut Resolve,
+    python_excluded: &[&Path],
 ) -> Result<Contracts> {
     ensure!(
         config.dependencies.len() <= 16,
@@ -377,8 +378,13 @@ pub(super) fn generate(
             .context("inferred source unit requires compiler")?;
         if compiler.is_adapter() {
             let (body, hashes) = if matches!(compiler, Compiler::Python) {
-                let (body, hashes, inferred) =
-                    adapters::python_contract(root, unit, &config.build.tools, resolve)?;
+                let (body, hashes, inferred) = adapters::python_contract(
+                    root,
+                    unit,
+                    &config.build.tools,
+                    resolve,
+                    python_excluded,
+                )?;
                 if inferred {
                     python_inferred.insert(name.clone());
                     let interface = if source_units.len() == 1 {

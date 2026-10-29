@@ -701,8 +701,19 @@ pub fn run_cli(args: &[String]) -> Result<Value> {
         "installed package dependencies currently require inferred source contracts"
     );
     let mut resolve = Resolve::default();
+    let output = output
+        .map(PathBuf::from)
+        .unwrap_or_else(|| root.join("dist"));
+    let cache = cache
+        .map(PathBuf::from)
+        .unwrap_or_else(|| root.join(".wisp-cache"));
     let inferred_contracts = if inferred {
-        Some(infer::generate(&mut config, root, &mut resolve)?)
+        Some(infer::generate(
+            &mut config,
+            root,
+            &mut resolve,
+            &[&output, &cache],
+        )?)
     } else {
         None
     };
@@ -875,9 +886,6 @@ pub fn run_cli(args: &[String]) -> Result<Value> {
         }
         worlds.insert(name.clone(), world);
     }
-    let output = output
-        .map(PathBuf::from)
-        .unwrap_or_else(|| root.join("dist"));
     ensure!(
         !output.try_exists()?,
         "output already exists; choose a fresh directory"
@@ -887,9 +895,6 @@ pub fn run_cli(args: &[String]) -> Result<Value> {
         .filter(|p| !p.as_os_str().is_empty())
         .unwrap_or(Path::new("."));
     fs::create_dir_all(parent)?;
-    let cache = cache
-        .map(PathBuf::from)
-        .unwrap_or_else(|| root.join(".wisp-cache"));
     let output_location = prospective(&output)?;
     let cache_location = prospective(&cache)?;
     ensure!(
