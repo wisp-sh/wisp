@@ -67,7 +67,10 @@ jobs:
           - runner: macos-15
             architecture: arm64
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 60
+    # Cold native builds run serially and vary with hosted-runner throughput.
+    # A slow Linux run reached networking only after 56 minutes. Keep stage
+    # limits below this total so a stalled stage fails before the job budget.
+    timeout-minutes: 180
     env:
       RUSTUP_TOOLCHAIN: 1.98.1
       CARGO_INCREMENTAL: '0'
@@ -75,10 +78,12 @@ jobs:
     steps:
       - name: Prepare disk on disposable GitHub-hosted Linux runners
         if: runner.environment == 'github-hosted' && runner.os == 'Linux'
+        timeout-minutes: 10
         run: |
           sudo rm -rf -- /usr/share/dotnet /usr/local/lib/android /usr/local/.ghcup /opt/hostedtoolcache/CodeQL
           df -h .
       - name: Use runner temporary storage
+        timeout-minutes: 1
         shell: bash
         run: echo "TMPDIR=$RUNNER_TEMP" >> "$GITHUB_ENV"
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -90,6 +95,7 @@ jobs:
           go-version: '1.27.1'
           cache: false
       - name: Provision pinned tools and dependency caches
+        timeout-minutes: 30
         shell: bash
         run: |
           set -euo pipefail
@@ -106,6 +112,7 @@ jobs:
           echo "WISP_NODE=$PWD/.tools/library-chain-node/node/bin/node" >> "$GITHUB_ENV"
           echo "WISP_JCO=$PWD/.tools/library-js/node_modules/.bin/jco" >> "$GITHUB_ENV"
       - name: Check CLI unit tests and setup environment
+        timeout-minutes: 30
         shell: bash
         run: |
           set -euo pipefail
@@ -113,6 +120,7 @@ jobs:
             -- --test-threads=1 \
             2>&1 | tee evidence/library-chain/setup-env.log
       - name: Check build validation and CLI behavior
+        timeout-minutes: 30
         shell: bash
         run: |
           set -euo pipefail
@@ -121,6 +129,7 @@ jobs:
           cargo test --locked --offline -p wisp --test cli -- --test-threads=1 \
             2>&1 | tee evidence/library-chain/cli-tests.log
       - name: Verify generated libraries package with only the Cargo seed
+        timeout-minutes: 30
         shell: bash
         run: |
           set -euo pipefail
@@ -131,6 +140,7 @@ jobs:
             setup_seed_packages_generated_libraries_offline \
             -- --ignored --test-threads=1
       - name: Execute worker protocol, ownership and isolation tests
+        timeout-minutes: 30
         shell: bash
         run: |
           set -euo pipefail
@@ -138,11 +148,13 @@ jobs:
             -- --test-threads=1 \
             2>&1 | tee evidence/library-chain/worker.log
       - name: Package and install through isolated Cargo and npm registries
+        timeout-minutes: 30
         shell: bash
         run: |
           set -euo pipefail
           python3 tests/library-chain/run.py 2>&1 | tee evidence/library-chain/install.log
       - name: Rebuild and execute with network access denied
+        timeout-minutes: 30
         shell: bash
         run: |
           set -euo pipefail
@@ -157,6 +169,7 @@ jobs:
               2>&1 | tee evidence/library-chain/offline.log
           fi
       - name: Install and exercise nested values and shared interfaces
+        timeout-minutes: 30
         shell: bash
         run: |
           set -euo pipefail
@@ -176,6 +189,7 @@ jobs:
               2>&1 | tee evidence/library-chain/catalog-offline.log
           fi
       - name: Install and execute asynchronous library values
+        timeout-minutes: 30
         shell: bash
         run: |
           set -euo pipefail
@@ -191,6 +205,7 @@ jobs:
               2>&1 | tee evidence/library-chain/async-offline.log
           fi
       - name: Install and execute owned resource libraries
+        timeout-minutes: 30
         shell: bash
         run: |
           set -euo pipefail
@@ -198,6 +213,7 @@ jobs:
             --output-dir out/library-resources --build-dir out/library-chain/cargo-target \
             2>&1 | tee evidence/library-chain/resources.log
       - name: Install and execute error-context libraries
+        timeout-minutes: 30
         shell: bash
         run: |
           set -euo pipefail
@@ -206,6 +222,7 @@ jobs:
           python3 tests/library-error-context/run.py --replay \
             2>&1 | tee evidence/library-chain/error-context-replay.log
       - name: Install and execute networking with local application servers
+        timeout-minutes: 30
         shell: bash
         run: |
           set -euo pipefail
@@ -216,6 +233,7 @@ jobs:
             --output-dir out/library-networks --build-dir out/library-chain/cargo-target \
             2>&1 | tee evidence/library-chain/network-replay.log
       - name: Prepare, publish, fetch and install through local registries
+        timeout-minutes: 30
         shell: bash
         run: |
           set -euo pipefail
@@ -224,6 +242,7 @@ jobs:
             --evidence evidence/library-chain/publication \
             2>&1 | tee evidence/library-chain/publication.log
       - name: Install and execute Go libraries from the local module proxy
+        timeout-minutes: 45
         shell: bash
         run: |
           set -euo pipefail
@@ -243,6 +262,7 @@ jobs:
             bundle_covers_the_pinned_shim_graph -- --ignored \
             2>&1 | tee evidence/library-chain/go-licenses.log
       - name: Check dependency resolution and library admission
+        timeout-minutes: 30
         shell: bash
         run: |
           set -euo pipefail
@@ -252,6 +272,7 @@ jobs:
             -- --test-threads=1 \
             2>&1 | tee evidence/library-chain/rust-library-tests.log
       - name: Publish and fetch a release with a Go module
+        timeout-minutes: 30
         shell: bash
         run: |
           set -euo pipefail
@@ -264,9 +285,11 @@ jobs:
             2>&1 | tee evidence/library-chain/go-publication.log
       - name: Collect bounded installed library diagnostics
         if: always()
+        timeout-minutes: 2
         run: python3 tools/ci-evidence/collect.py --group installed-packages --output evidence/upload-installed-packages
       - name: Save installed library diagnostics
         if: always()
+        timeout-minutes: 5
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: component-installed-${{ matrix.runner }}-${{ matrix.architecture }}-evidence

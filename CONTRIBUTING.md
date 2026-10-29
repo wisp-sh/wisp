@@ -52,6 +52,12 @@ source inference and build validation without claiming full source compiler
 acceptance. Source CI also runs a dedicated generated Python wheel test against
 `wasmtime==48.0.0` and requires real execution with zero skipped tests.
 
+The installed-package job has a 180-minute total budget for serial cold builds
+on variable-speed hosted runners. Each build or acceptance stage has a
+30-minute limit; the Go suite has 45 minutes for its separate native archive
+builds. A timeout fails the job. All suites and offline replays remain required,
+and the diagnostic steps run with `always()` after a stage failure.
+
 The Component library and source acceptance jobs upload selected diagnostic
 logs and JSON receipts after success or failure, with seven-day retention.
 Each artifact is limited to 8 MiB and 128 files; log tails are limited to
