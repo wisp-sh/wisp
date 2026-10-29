@@ -104,7 +104,12 @@ jobs:
           npm ci --prefix .tools/python-source/js --ignore-scripts --no-audit --no-fund > evidence/python-source/npm-setup.log 2>&1
           echo "WISP_NODE=$(command -v node)" >> "$GITHUB_ENV"
           echo "WISP_JCO=$PWD/.tools/python-source/js/node_modules/.bin/jco" >> "$GITHUB_ENV"
-          cargo fetch --locked --manifest-path tests/library-chain/native-seed/Cargo.toml > evidence/python-source/cargo-seed.log 2>&1
+          mkdir -p .tools/python-source/cargo-seed/src
+          cp crates/wisp/assets/setup-cargo-seed/Cargo.toml.txt .tools/python-source/cargo-seed/Cargo.toml
+          cp crates/wisp/assets/setup-cargo-seed/Cargo.lock.txt .tools/python-source/cargo-seed/Cargo.lock
+          cp crates/wisp/assets/setup-cargo-seed/lib.rs.txt .tools/python-source/cargo-seed/src/lib.rs
+          printf '\n[workspace]\n' >> .tools/python-source/cargo-seed/Cargo.toml
+          cargo fetch --locked --manifest-path .tools/python-source/cargo-seed/Cargo.toml > evidence/python-source/cargo-seed.log 2>&1
       - name: Install compiler and execute rich consumers with networking disabled
         env:
           TESTED_WISP_SHA: ${{ github.sha }}
