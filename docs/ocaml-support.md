@@ -8,6 +8,11 @@ assembles the Component. Application builds need no native OCaml, C compiler,
 Dune, opam, Node or network access. Native bootstrap compilers are needed only
 when building the toolchain itself. Native consumers have their own build tools.
 
+The installed acceptance uses the candidate Wisp worker for compiler and
+application execution, including modern Wasm exceptions. An ordinary Wasmtime
+50 host with exception support also works. A minimal CLI built without the
+required Wasmtime GC support cannot enable this exception configuration.
+
 ```toml
 [package]
 name = "example:ocaml-values"

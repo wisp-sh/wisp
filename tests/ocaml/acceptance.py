@@ -29,16 +29,19 @@ def main():
     report = {'passed':False, 'complete':False}
     (out/'result.json').write_text(json.dumps(report)+'\n')
     logs = out/'logs'; logs.mkdir()
-    def run(argv, *, cwd=ROOT, environment=env, success=True):
+    def run(argv, *, cwd=ROOT, environment=env, success=True, input_data=None):
         argv=list(map(str,argv)); index=len(commands)
         path=logs/f'{index:03}.stdout.log'
         errors=logs/f'{index:03}.stderr.log'
         print('+ '+' '.join(argv),flush=True)
         started=time.monotonic()
         with path.open('w') as stream, errors.open('w') as stderr:
-            result=subprocess.run(argv,cwd=cwd,env=environment,stdin=subprocess.DEVNULL,stdout=stream,stderr=stderr,timeout=3600)
+            result=subprocess.run(argv,cwd=cwd,env=environment,
+                                  stdin=subprocess.DEVNULL if input_data is None else None,
+                                  input=input_data,stdout=stream,stderr=stderr,timeout=3600)
         commands.append({'argv':argv,'cwd':str(cwd),'exitCode':result.returncode,
-                         'elapsedSeconds':round(time.monotonic()-started,3),'log':str(path),'stderrLog':str(errors)})
+                         'elapsedSeconds':round(time.monotonic()-started,3),'log':str(path),'stderrLog':str(errors),
+                         'stdinSha256':hashlib.sha256(input_data).hexdigest() if input_data is not None else None})
         (out/'commands.json').write_text(json.dumps(commands,indent=2)+'\n')
         if (result.returncode==0)!=success:
             print(path.read_text()[-24000:],file=sys.stderr)
@@ -93,7 +96,12 @@ def main():
     changed=out/'changed'
     run([cli,'build',project,'--component-only','--out',changed,'--cache',out/'cache'],environment=guarded)
     assert digest(changed/'component.wasm')!=digest(release/'component.wasm')
-    assert run([env['WISP_WASMTIME'],'run','-W','exceptions=y','--invoke','add(20,20)',changed/'component.wasm'])=='43'
+    request={'version':1,'id':1,'module':str(changed/'component.wasm'),
+             'sha256':digest(changed/'component.wasm'),'interface':'example:ocaml-values/api@0.1.0',
+             'function':'add','params':[20,20]}
+    response=json.loads(run([env['WISP_WORKER'],'serve'],input_data=(json.dumps(request)+'\n').encode()))
+    assert response['version']==1 and response['id']==1 and response['ok'] and response['exit_code']==0
+    assert response['results']==[43], response
     (project/'library.ml').write_text('let malformed = (\n')
     run([cli,'build',project,'--component-only','--out',out/'failed','--cache',out/'cache'],environment=guarded,success=False)
     assert not (out/'failed').exists()

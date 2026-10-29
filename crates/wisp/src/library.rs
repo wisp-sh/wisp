@@ -970,18 +970,20 @@ fn cargo_manifest(
     metadata: &crate::library_metadata::Metadata,
     wasi: bool,
     asynchronous: bool,
+    reactor: bool,
     worker: bool,
 ) -> Result<String> {
     let native_dependencies = if worker {
         "serde = { version = \"1\", features = [\"derive\"] }\nserde_json = \"1\"\ntempfile = \"3\"\n".to_owned()
     } else {
         format!(
-            "wasmtime = {{ version = \"=50.0.0\", default-features = false, features = [\"component-model\", \"cranelift\", \"runtime\", \"std\"{}] }}\n{}",
+            "wasmtime = {{ version = \"=50.0.0\", default-features = false, features = [\"component-model\", \"cranelift\", \"runtime\", \"std\"{}{}] }}\n{}",
             if asynchronous {
                 ", \"component-model-async\""
             } else {
                 ""
             },
+            if reactor { ", \"gc\", \"gc-drc\"" } else { "" },
             if wasi {
                 crate::library_wasi::DEPENDENCIES
             } else {
@@ -1562,6 +1564,7 @@ pub fn validate(dir: &Path) -> Result<Value> {
                 &metadata,
                 wasi,
                 asynchronous,
+                reactor,
                 worker::supports(&resolve, world),
             )?
             .into_bytes(),
@@ -1601,6 +1604,7 @@ pub fn validate(dir: &Path) -> Result<Value> {
             &metadata,
             wasi,
             asynchronous,
+            reactor,
             worker::supports(&resolve, world),
         )?,
     )?;
@@ -1856,6 +1860,7 @@ pub fn run_cli(args: &[String]) -> Result<Value> {
             &metadata,
             wasi,
             asynchronous,
+            reactor,
             worker::supports(&resolve, world),
         )?,
     )?;

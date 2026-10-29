@@ -161,7 +161,7 @@ impl Toolchain {
             root,
             &[("WISP_WASMTIME", &tools.wasmtime)],
             crate::compiler_hosts::COMMAND_VERSION,
-            if matches!(compiler, Compiler::Goose) {
+            if matches!(compiler, Compiler::Goose | Compiler::Ocaml) {
                 crate::compiler_hosts::Contract::WorkerProtocol
             } else {
                 crate::compiler_hosts::Contract::WasmtimeCli
@@ -169,6 +169,11 @@ impl Toolchain {
         )?;
         let mut environment = BTreeMap::new();
         environment.insert("WISP_WASMTIME".into(), runtime.path.clone());
+        if matches!(compiler, Compiler::Ocaml)
+            && runtime.backend == crate::compiler_hosts::Backend::WorkerProtocol
+        {
+            environment.insert("WISP_WORKER".into(), runtime.path.clone());
+        }
         for (variable, configured) in [
             ("WISP_WASMTIME_PYTHON", &tools.wasmtime_python),
             ("WISP_GOOSE_FRONTEND_HOST", &tools.goose_frontend_host),
@@ -930,6 +935,7 @@ mod tests {
             (Compiler::Swift, "main.swift"),
             (Compiler::Java, "Main.java"),
             (Compiler::Kotlin, "Main.kt"),
+            (Compiler::Ocaml, "main.ml"),
         ] {
             let temp = tempfile::tempdir().unwrap();
             let root = temp.path().join("project");

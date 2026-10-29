@@ -83,14 +83,17 @@ def main():
             'WISP_WASM_TOOLS_TOOLCHAIN':'wasm-tools', 'WISP_WASM_TOOLS':'wasm-tools/dist/wasm-tools.wasm',
             'WISP_PREVIEW1_ADAPTER':'wasm-tools/dist/wasi_snapshot_preview1.reactor.wasm',
         }.items()})
-        # The pinned host executes the compiler; it is not an application compiler.
-        env['WISP_WORKER'] = runtime_host
+        env['WISP_WORKER'] = str(runtime/'bin/wisp-worker')
     else:
         text = subprocess.check_output([cli,'toolchain','env','--prefix',prefix],env=env,text=True)
         for line in text.splitlines():
             _, value = shlex.split(line); key, path = value.split('=',1); env[key] = path
         env['WISP_WORKER'] = str(ROOT/'target/debug/wisp-worker')
-    env['WISP_OCAML_WASMTIME'] = runtime_host
+    # OCaml uses modern exception instructions. Select the worker consistently
+    # for both the compiler backend and application execution; the minimal CLI
+    # in the runtime bundle was built without Wasmtime GC support.
+    env['WISP_WASMTIME'] = env['WISP_WORKER']
+    env['WISP_OCAML_WASMTIME'] = env['WISP_WORKER']
     # The candidate worker configures caching before engine startup. Keep its
     # persistent cache outside the source inventory and carry it into the
     # network-isolated acceptance process.
@@ -105,6 +108,7 @@ def main():
               'candidateSha256': digest(candidate), 'compilerManifestSha256': digest(selected/'dist/manifest.json'),
               'installedAdapter': str(selected), 'dependencies': manifest['bundles'],
               'installer': 'buildtools' if args.flat_install else 'wisp',
+              'executionHost': 'pinned-runtime-worker' if args.flat_install else 'candidate-worker',
               'executionHostSha256': digest(env['WISP_WORKER'])}
     if not args.flat_install:
         report['wispSha256'] = digest(cli)
