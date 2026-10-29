@@ -29,8 +29,9 @@ jobs:
         run: |
           set -euo pipefail
           test "$(uname -m)" = '${{ matrix.architecture }}'
-          rustup toolchain install 1.93.0 --profile minimal --target wasm32-unknown-unknown
           mkdir -p evidence/component-library-chain
+          rustup toolchain install 1.93.0 --profile minimal --target wasm32-unknown-unknown \
+            2>&1 | tee evidence/component-library-chain/toolchain.log
           python3 tests/component-chain/run.py --setup \
             2>&1 | tee evidence/component-library-chain/setup.log
       - name: Build, compose and execute without network access
@@ -45,6 +46,17 @@ jobs:
             sandbox-exec -p '(version 1) (allow default) (deny network*)' \
               bash verify-component-chain.sh
           fi
+      - name: Collect bounded composition diagnostics
+        if: always()
+        run: python3 tools/ci-evidence/collect.py --group compose --output evidence/upload-compose
+      - name: Save composition diagnostics
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: component-compose-${{ matrix.runner }}-${{ matrix.architecture }}-evidence
+          path: evidence/upload-compose/
+          if-no-files-found: warn
+          retention-days: 7
   installed-packages:
     strategy:
       fail-fast: false
@@ -84,9 +96,11 @@ jobs:
           test "$(uname -m)" = '${{ matrix.architecture }}'
           mkdir -p evidence/library-chain
           python3 tests/library-chain/setup.py 2>&1 | tee evidence/library-chain/setup.log
-          python3 tools/upstream-bindings/setup.py --out .tools/upstream-bindings
+          python3 tools/upstream-bindings/setup.py --out .tools/upstream-bindings \
+            2>&1 | tee evidence/library-chain/bindings-setup.log
           echo "WISP_WIT_BINDGEN=$PWD/.tools/upstream-bindings/wit-bindgen" >> "$GITHUB_ENV"
-          cargo build --locked --offline -p wisp -p wisp-worker
+          cargo build --locked --offline -p wisp -p wisp-worker \
+            2>&1 | tee evidence/library-chain/cli-build.log
           echo "WISP_WORKER=$PWD/target/debug/wisp-worker" >> "$GITHUB_ENV"
           echo "$PWD/.tools/library-chain-node/node/bin" >> "$GITHUB_PATH"
           echo "WISP_NODE=$PWD/.tools/library-chain-node/node/bin/node" >> "$GITHUB_ENV"
@@ -98,6 +112,14 @@ jobs:
           cargo test --locked --offline -p wisp --bin wisp \
             -- --test-threads=1 \
             2>&1 | tee evidence/library-chain/setup-env.log
+      - name: Check build validation and CLI behavior
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo test --locked --offline -p wisp --test build -- --test-threads=1 \
+            2>&1 | tee evidence/library-chain/build-tests.log
+          cargo test --locked --offline -p wisp --test cli -- --test-threads=1 \
+            2>&1 | tee evidence/library-chain/cli-tests.log
       - name: Verify generated libraries package with only the Cargo seed
         shell: bash
         run: |
@@ -227,6 +249,7 @@ jobs:
           cargo test --locked --offline -p wisp \
             --test dependencies --test library --test library_publish \
             --test library_resources \
+            -- --test-threads=1 \
             2>&1 | tee evidence/library-chain/rust-library-tests.log
       - name: Publish and fetch a release with a Go module
         shell: bash
@@ -239,3 +262,14 @@ jobs:
             --cli target/debug/wisp --release out/library-chain-go \
             --evidence evidence/library-chain/go-publication \
             2>&1 | tee evidence/library-chain/go-publication.log
+      - name: Collect bounded installed library diagnostics
+        if: always()
+        run: python3 tools/ci-evidence/collect.py --group installed-packages --output evidence/upload-installed-packages
+      - name: Save installed library diagnostics
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: component-installed-${{ matrix.runner }}-${{ matrix.architecture }}-evidence
+          path: evidence/upload-installed-packages/
+          if-no-files-found: warn
+          retention-days: 7
