@@ -72,7 +72,7 @@ jobs:
         with:
           repository: wisp-sh/wisp-buildtools
           ref: ${{ inputs.buildtools_sha }}
-          path: .acceptance-buildtools
+          path: .tools/javascript-buildtools
           persist-credentials: false
       - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0
         with:
@@ -86,7 +86,7 @@ jobs:
           python3 - <<'PY'
           import importlib.util, os
           from pathlib import Path
-          path = Path('.acceptance-buildtools/tools/ci-prerequisites.py')
+          path = Path('.tools/javascript-buildtools/tools/ci-prerequisites.py')
           spec = importlib.util.spec_from_file_location('prerequisites', path)
           module = importlib.util.module_from_spec(spec)
           spec.loader.exec_module(module)
