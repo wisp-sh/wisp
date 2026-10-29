@@ -345,9 +345,15 @@ fn constant_type_name(
     if let Some(Declaration::Alias(target)) = declarations.get(name) {
         return constant_type_name(target, declarations, named, depth + 1);
     }
-    // Imported types and other scalar types may occur in private constants.
-    // Only locally defined integer types are candidates for inferred enums.
-    Ok(name.into())
+    // The predeclared byte and rune names are aliases too. Resolve them only
+    // after local declarations, which can shadow the predeclared names.
+    // Imported and other scalar types may occur in private constants.
+    Ok(match name {
+        "byte" => "uint8",
+        "rune" => "int32",
+        _ => name,
+    }
+    .into())
 }
 
 fn expression_type(
@@ -981,6 +987,23 @@ mod tests {
         // If a builtin's value participates in an enum, its unsupported value
         // must reject that enum even though the builtin alone is unrelated.
         assert!(api("type Mode uint8\nconst ModeA Mode = 1\nconst length = len(\"xx\")\nconst ModeB = ModeA + length\nfunc Value() Mode {return ModeB}").is_err());
+    }
+
+    #[test]
+    fn predeclared_aliases_share_constant_operand_types() {
+        for (alias, base) in [("byte", "uint8"), ("rune", "int32")] {
+            let functions = api(&format!(
+                "type Alias = {alias}\nconst a Alias = 1\nconst b {base} = 2\nconst sum = a + b\nconst smallest = min(a, b)\nconst largest = max({alias}(1), {base}(2))\ntype Mode uint8\nconst ModeA Mode = 1\nconst ModeB = Mode(sum)\nfunc Value() Mode {{return ModeB}}"
+            )).unwrap();
+            let SourceKind::Enum(cases) = &functions[0].source_result.as_ref().unwrap().kind else {
+                panic!("{alias}")
+            };
+            assert_eq!(
+                cases.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(),
+                ["ModeA", "ModeB"],
+                "{alias}"
+            );
+        }
     }
 
     #[test]
