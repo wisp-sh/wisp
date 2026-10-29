@@ -91,7 +91,7 @@ jobs:
           merge-multiple: true
       - name: Verify artifacts and stage only missing Python wheels
         id: python
-        uses: wisp-sh/wisp/.github/actions/library-publish@WISP_ACTION_COMMIT
+        uses: wisp-sh/wisp/.github/actions/library-publish@a916c4c6524526cd6706273143618504a2548097
         with:
           command: pypi
       - name: Publish Python wheels with trusted publishing

@@ -63,7 +63,7 @@ jobs:
           submodules: recursive
           persist-credentials: false
       - name: Build with the pinned action and release runtime
-        uses: wisp-sh/wisp/.github/actions/library-build@daef8b47ca7f4fd7bd828110c03509644a0a3dca
+        uses: wisp-sh/wisp/.github/actions/library-build@a916c4c6524526cd6706273143618504a2548097
       # Wisp downloads this artifact when the build is first requested.
       # Builds nobody fetches within the retention period expire.
       - name: Save package artifacts
@@ -97,14 +97,14 @@ jobs:
         with:
           subject-path: ${{ runner.temp }}/wisp-artifacts/packages/*/*
       - name: Record file hashes through the pinned action
-        uses: wisp-sh/wisp/.github/actions/library-record@daef8b47ca7f4fd7bd828110c03509644a0a3dca
+        uses: wisp-sh/wisp/.github/actions/library-record@a916c4c6524526cd6706273143618504a2548097
         with:
           artifact-id: ${{ needs.build.outputs.artifact_id }}
           artifact-digest: ${{ needs.build.outputs.artifact_digest }}
       - name: Plan caller-side Python publication after recording
         if: github.event_name == 'release' && inputs.publish
         id: plan
-        uses: wisp-sh/wisp/.github/actions/library-publish@daef8b47ca7f4fd7bd828110c03509644a0a3dca
+        uses: wisp-sh/wisp/.github/actions/library-publish@a916c4c6524526cd6706273143618504a2548097
         with:
           command: plan
   publish:
@@ -125,7 +125,7 @@ jobs:
           merge-multiple: true
       - name: Select declared registries
         id: plan
-        uses: wisp-sh/wisp/.github/actions/library-publish@daef8b47ca7f4fd7bd828110c03509644a0a3dca
+        uses: wisp-sh/wisp/.github/actions/library-publish@a916c4c6524526cd6706273143618504a2548097
         with:
           command: plan
       - name: Install npm with trusted publishing support
@@ -135,7 +135,7 @@ jobs:
           node-version: '24'
       - name: Publish npm archives
         if: steps.plan.outputs.npm == 'true'
-        uses: wisp-sh/wisp/.github/actions/library-publish@daef8b47ca7f4fd7bd828110c03509644a0a3dca
+        uses: wisp-sh/wisp/.github/actions/library-publish@a916c4c6524526cd6706273143618504a2548097
         with:
           command: npm
       - name: Exchange GitHub OIDC for a crates.io publish token
@@ -144,7 +144,7 @@ jobs:
         uses: rust-lang/crates-io-auth-action@3268eb413133e2960fa4ae0e963ca76380c54cd9
       - name: Publish crates
         if: steps.plan.outputs.cargo == 'true'
-        uses: wisp-sh/wisp/.github/actions/library-publish@daef8b47ca7f4fd7bd828110c03509644a0a3dca
+        uses: wisp-sh/wisp/.github/actions/library-publish@a916c4c6524526cd6706273143618504a2548097
         env:
           CARGO_REGISTRY_TOKEN: ${{ steps.crates.outputs.token }}
         with:
