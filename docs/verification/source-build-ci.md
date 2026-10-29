@@ -22,6 +22,12 @@ bundles and pinning the repository variables, remove the `workflow_dispatch`
 condition on `jobs.source-build` to run the full job on pushes and pull
 requests and configure it as a required check.
 
+Pushes and pull requests also run a separate Python wheel job with exactly
+`wasmtime==48.0.0`. It executes the generated wheel's real Component test and
+fails if that test is missing, skipped or unsuccessful. The acquisition job
+retains the stdlib-only Python tests, where this integration may be skipped.
+Neither job compiles application source through the Wasm-hosted compilers.
+
 ## Publish the inputs
 
 Create and validate the bundles in the compiler repository first. The manifest
@@ -105,9 +111,21 @@ WIT bindings, Wasm-hosted compilation and runtime behavior.
 digests, the installed prefix and the CLI hash. `inputs.json` records compiler
 and execution-host hashes plus the tested source files. `compiler-receipts.json`
 collects each actual build receipt and rejects a compiler hash that differs
-from preflight. JCO output and runtime results stay beside the source-build
-evidence. Logs, receipts and exact application Components are saved
-in the `source-build-linux-amd64-evidence` artifact, including failed runs.
+from preflight. Full JCO output and application Components remain on the runner.
+After success or failure, the workflow collects selected logs and JSON receipts
+in the `source-build-linux-amd64-evidence` artifact for seven days. This includes
+the redirected bootstrap, toolchain install and CLI build logs when those steps
+were reached. Checkout or system bootstrap failures may leave no files to upload.
+
+`tools/ci-evidence/collect.py` uses explicit diagnostic paths. It saves at most
+128 files and 8 MiB including its collection receipt, keeps only the last
+256 KiB of each log, and omits JSON files over 1 MiB instead of truncating them
+into invalid JSON. `collection.json` records truncation and omissions. It
+redacts known secret environment values, credential fields, URL credentials
+and query strings, and replaces workspace/home paths. It does not collect
+caches, compiler bundles, executables, Components, environment dumps or registry
+configuration. Avoid writing credentials or private source into diagnostic logs;
+the redaction is a precaution, not a guarantee for arbitrary private text.
 
 A passing full run has `status: "passed"`, `complete: true` and
 `cleanInstallVerified: true` in `out/source-build-ci/result.json`. Selecting

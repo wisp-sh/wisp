@@ -46,6 +46,25 @@ The CLI tests do not require a provisioned toolchain. Additional test suites
 may require the installed executables, compiler bundles, a native compiler or a
 browser. Keep the matching worker beside the CLI or set `WISP_WORKER`.
 
+Ordinary Component library CI runs the CLI's `--bin wisp` tests and the
+`--test build` and `--test cli` suites serially on Linux and macOS. This covers
+source inference and build validation without claiming full source compiler
+acceptance. Source CI also runs a dedicated generated Python wheel test against
+`wasmtime==48.0.0` and requires real execution with zero skipped tests.
+
+The installed-package job has a 180-minute total budget for serial cold builds
+on variable-speed hosted runners. Each build or acceptance stage has a
+30-minute limit; the Go suite has 45 minutes for its separate native archive
+builds. A timeout fails the job. All suites and offline replays remain required,
+and the diagnostic steps run with `always()` after a stage failure.
+
+The Component library and source acceptance jobs upload selected diagnostic
+logs and JSON receipts after success or failure, with seven-day retention.
+Each artifact is limited to 8 MiB and 128 files; log tails are limited to
+256 KiB, and JSON receipts over 1 MiB are omitted. The collection receipt lists
+omissions. Build caches and binary outputs are excluded. See the
+[source CI evidence guide](docs/verification/source-build-ci.md#coverage-and-evidence).
+
 ## Full acceptance
 
 The [source compiler CI guide](docs/verification/source-build-ci.md) describes acquisition and
