@@ -110,10 +110,13 @@ def fixture(project, src_layout=False):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--cli', required=True, type=Path)
+    parser.add_argument('--wisp-commit', required=True)
     parser.add_argument('--prefix', required=True, type=Path)
     parser.add_argument('--bundles', required=True, type=Path)
     parser.add_argument('--out', required=True, type=Path)
     args = parser.parse_args()
+    tested_commit = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True, timeout=30).strip()
+    require(tested_commit == args.wisp_commit, 'checkout differs from requested Wisp commit')
     cli, prefix, out = args.cli.resolve(), args.prefix.resolve(), args.out.resolve()
     out.mkdir(parents=True, exist_ok=False)
     environment = dict(os.environ, WISP_TOOLCHAIN_HOME=str(prefix), PYTHONDONTWRITEBYTECODE='1', CARGO_NET_OFFLINE='true', npm_config_offline='true')
@@ -121,7 +124,8 @@ def main():
     for name in ('WISP_PYTHON_TOOLCHAIN', 'WISP_WASM_TOOLS_TOOLCHAIN', 'WISP_WASM_TOOLS'):
         environment.pop(name, None)
     records, checks = [], []
-    report = {'schema': 1, 'passed': False, 'complete': False, 'cliSha256': digest(cli), 'checks': checks, 'commands': records}
+    report = {'schema': 1, 'passed': False, 'complete': False, 'wispCommit': tested_commit,
+              'cliSha256': digest(cli), 'checks': checks, 'commands': records}
     def save():
         write(out / 'result.json', json.dumps(report, indent=2) + '\n')
     def run(argv, *, cwd=ROOT, success=True):
@@ -221,6 +225,7 @@ def main():
         after = json.loads(run([cli, 'toolchain', 'doctor', '--prefix', prefix]))
         require(after['valid'] and before['packages'] == after['packages'], 'installed compiler files changed during use')
         write(out / 'doctor-after.json', json.dumps(after, indent=2))
+        check('installed compiler inventory unchanged after all builds')
         report.update(passed=True, complete=True, cleanInstallVerified=True)
         save()
     except Exception as error:

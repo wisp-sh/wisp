@@ -39,7 +39,12 @@ The evidence artifact records the Wisp CLI hash, immutable compiler source pin,
 GitHub run/job/artifact provenance, installed inventories, each build receipt,
 consumer result and bounded command logs. Both `passed` and `complete` in
 `out/python-source/result.json` must be true. A successful evidence-contract job
-on push or PR does not constitute compiler acceptance.
+on push or PR does not constitute compiler acceptance. The dispatch sets the
+`Python executed acceptance` commit status to pending on the exact Wisp SHA.
+Success requires every installed consumer and invalidation check, the final
+unchanged package inventory, and evidence matching that SHA and compiler pin.
+Early failures or skipped stages cannot set a successful status. A missing or
+pending status is not merge readiness.
 
 ## Boundaries
 
