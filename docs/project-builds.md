@@ -60,7 +60,7 @@ and version. The generated and selected contracts stay under `build/units/`.
 | `swift` | Scalar exports with matching Wasm export attributes; aggregates require ABI conversion |
 | `csharp` | Experimental Mono interpreter; multiple files, directories or offline `net8.0` projects. Semantic public static API discovery and authored rich WIT exports; optional `entry = "Namespace.Type"`. |
 | `java`, `kotlin` | TeaVM scalar exports; set `entry` to the main class, such as `Math` or `MathKt` |
-| `python` | Default scalar `wisp:python/api@0.1.0` adapter, or multiple typed exports through an authored WIT contract and a separately provisioned runtime template |
+| `python` | Guest CPython infers annotated functions, dataclasses, enums and typed results; authored WIT remains supported. Matching runtimes are provisioned automatically and cached. |
 
 C# discovers public static methods and supported data types using Wasm-hosted
 Roslyn when no contract is supplied. Select authored WIT with `build.wit` and
@@ -92,22 +92,100 @@ The frontend requires a host with Wasm exception support. Set
 LLVM host lacks that feature. See the
 [Goose example](../examples/build-goose/README.md).
 
-For Python's fixed scalar profile, declare its WIT interface and use `entry` to
-select the two-argument integer callable. For multiple exports, strings,
-lists, records and typed results, provide `build.wit` and `build.world`, or an
-adjacent WIT contract. Provision its matching runtime template in buildtools first
-with `python3 python/bootstrap_contract.py --wit CONTRACT --world WORLD`.
-The Python toolchain must include that template under `dist/contracts/`.
-Normal application builds use Wasm-hosted compilation and do not run native
-componentize-py. This contract path requires an import-free synchronous world;
-resources and async APIs are unsupported. New templates bundle local Python modules. Set
-`project` to the directory containing your top-level packages, and keep one
-entrypoint in `sources`. Vendored pure Python dependencies can live under that
-source root. Package initialization, relative imports and function-local imports
-execute in guest CPython. Older templates need `bootstrap_contract.py --rebuild`
-for module support. Native extensions and package data are not bundled.
-Python functions use WIT names converted to snake_case. Records use the generated
-`wit_world.exports` dataclasses, and typed errors use `componentize_py_types.Err`.
+Python builds infer public top-level functions in the file selected by `sources`,
+including reexports from bundled modules. A literal `__all__` selects exports.
+Private names starting with `_` are ignored. Every public parameter and return
+needs a supported annotation. `int`, `float`, `bool`, `str` and `bytes` map to
+`s64`, `f64`, `bool`, `string` and `list<u8>`. Lists, `Optional[T]` or `T | None`,
+dataclasses and `enum.Enum` map to their WIT equivalents. Types can be imported
+from bundled modules, with aliases and module-qualified annotations; imported
+types get module-qualified WIT names. Conditional definitions, computed export
+lists, nested options that collapse in Python, recursive types, generic or async
+functions, function decorators, variadic and keyword-only parameters are rejected.
+Diagnostics name the public function and unsupported type. Inference uses guest
+CPython's `ast` inside Wasm and never executes application code.
+
+For typed failures, annotate `Result[T, E]` imported from
+`componentize_py_types`. Return `T` directly or raise `Err(E)` from the same
+module. An ordinary Python exception traps. Plain dataclasses and enums are
+converted to and from generated binding values by the guest adapter. Authored
+contracts remain available through `build.wit` and `build.world`, or an adjacent
+WIT file. They can specify integer widths and contract types beyond inference.
+The contract path requires an import-free synchronous world; resources and async
+APIs are unsupported.
+
+A missing runtime template is provisioned automatically through the installed
+Python toolchain, serialized across concurrent builds, and cached under
+`<build-cache>/python/<provisioner-hash>/contracts/<contract-hash>/`. Provisioning
+uses bundled, version-pinned and SHA-256-checked native componentize-py, Binaryen,
+WAC and wasm-tools. It receives only WIT, never application source. It is a
+compiler-package bootstrap step, even when triggered by `wisp build`. Application
+source parsing, compilation, initialization, packaging and final validation run
+inside Wasm. The first contract build needs bootstrap-sized memory and disk;
+function-body edits reuse the snapshot. Automatic provisioning currently requires
+Linux x86_64. Other compatible hosts can reuse an installed matching template.
+Install a newly bootstrapped Python package to get inference and offline
+provisioning assets. Legacy packages cannot
+supply them automatically.
+
+Set `project` to the directory containing your top-level Python packages and
+keep one entrypoint in `sources`. For a `src/` layout, use `project = "src"` and
+`sources = ["src/main.py"]`; dependency declarations and the lock remain beside
+`wisp.toml`. Relative imports, namespace packages and function-local imports run
+in guest CPython. Source plus package data is limited to 16 MiB, the encoded
+program plus loader to 32 MiB, and finished Components to 64 MiB.
+
+Guest analysis discovers stdlib imports across reachable bundled modules and
+preinitializes them automatically. Changing that set selects a new cached
+template. Computed imports and lazy stdlib helpers may need explicit
+`preload-modules = ["html.parser"]` under `[tool.wisp.python]` in `pyproject.toml`.
+Availability still depends on the bundled
+WASI CPython runtime and the consuming host's capabilities.
+
+Pure Python third-party dependencies are selected offline from PEP 440/508
+requirements in `[project].dependencies` in `pyproject.toml` and/or
+`requirements.txt`. A `python-deps.lock.json` beside them must pin every selected
+package, including transitive dependencies, to a local wheel or vendor tree:
+
+```json
+{
+  "schema": 1,
+  "packages": [
+    {
+      "name": "example-package",
+      "version": "1.2.3",
+      "path": "wheels/example_package-1.2.3-py3-none-any.whl",
+      "sha256": "<64 lowercase hex digits>"
+    }
+  ]
+}
+```
+
+For that entry, `example-package>=1,<2` is allowed: the lock fixes its exact
+version and SHA-256. Every active transitive dependency must also be locked.
+Markers target CPython 3.14.0 on WASI, including `sys_platform="wasi"` and
+`platform_machine="wasm32"`. Extras, prereleases, epochs and local versions are
+supported. Select project extras with `[tool.wisp.python] extras = ["feature"]`.
+Requirements files support `-r`, `-c`, continuations and matching `--hash=sha256:`
+values. Direct URLs must match a lock `url`; bytes still come from its local
+`path`, with no network access. Editable installs, source distributions, installer
+options and dynamic project dependencies remain unsupported.
+
+For vendored source, `path` selects a directory, `files` maps every source/data
+path to its SHA-256, and `sha256` hashes the UTF-8 JSON encoding of that map with
+sorted keys and separators `,` and `:` without whitespace. Optional `requires`
+and `extras` describe its metadata. Wheel metadata, version constraints,
+`Requires-Python` and purelib `*-none-any` tags are checked against the lock.
+
+Package resources and distribution metadata are bundled in a read-only virtual
+filesystem. `importlib.resources`, `pkgutil.get_data`, `importlib.metadata` and
+Python `open`/`pathlib` paths derived from `__file__` can read them without host
+preopens. OS file descriptors, mmap and writes are unsupported. Wheel
+`.data/purelib` relocation is supported; other install schemes, native
+extensions, bytecode-only packages and symlinks are rejected.
+See [the Python example](../examples/build-python/README.md) and
+[the WASI extension design note](python-native-extensions.md).
+
 `entry` applies only to the default scalar adapter. JavaScript
 has no Node builtins or browser DOM. The additional scalar adapters do not
 automatically convert language-managed strings, collections or objects.

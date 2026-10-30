@@ -161,6 +161,7 @@ pub(super) struct Function {
     result: Option<String>,
 }
 pub(super) struct Contracts {
+    pub python_inferred: BTreeSet<String>,
     pub package: PackageId,
     pub worlds: BTreeMap<String, WorldId>,
     pub functions: BTreeMap<String, BTreeMap<String, Function>>,
@@ -351,6 +352,7 @@ pub(super) fn generate(
     config: &mut Config,
     root: &Path,
     resolve: &mut Resolve,
+    python_excluded: &[&Path],
 ) -> Result<Contracts> {
     ensure!(
         config.dependencies.len() <= 16,
@@ -358,6 +360,7 @@ pub(super) fn generate(
     );
     let source_units = config.build.units.keys().cloned().collect::<Vec<_>>();
     let mut functions = BTreeMap::new();
+    let mut python_inferred = BTreeSet::new();
     let mut sources = BTreeMap::new();
     let mut complete_sources = BTreeSet::new();
     let mut module_imports = Vec::new();
@@ -399,7 +402,29 @@ pub(super) fn generate(
             continue;
         }
         if compiler.is_adapter() {
-            let (body, hashes) = adapters::contract(root, unit, compiler, resolve)?;
+            let (body, hashes) = if matches!(compiler, Compiler::Python) {
+                let (body, hashes, inferred) = adapters::python_contract(
+                    root,
+                    unit,
+                    &config.build.tools,
+                    resolve,
+                    python_excluded,
+                )?;
+                if inferred {
+                    python_inferred.insert(name.clone());
+                    let interface = if source_units.len() == 1 {
+                        "api".into()
+                    } else {
+                        format!("{}-api", wire_name(name)?)
+                    };
+                    wit.push_str(&format!("interface %{interface} {{\n{body}\n}}\n"));
+                    (format!("export %{interface};"), hashes)
+                } else {
+                    (body, hashes)
+                }
+            } else {
+                adapters::contract(root, unit, compiler, resolve)?
+            };
             unit.world = wire_name(name)?;
             wit.push_str(&format!("world %{} {{\n{body}\n}}\n", unit.world));
             sources.insert(name.clone(), hashes);
@@ -647,6 +672,7 @@ pub(super) fn generate(
         );
     }
     Ok(Contracts {
+        python_inferred,
         package,
         worlds,
         functions,
