@@ -139,6 +139,7 @@ struct Tools {
     csharp: Option<PathBuf>,
     java: Option<PathBuf>,
     kotlin: Option<PathBuf>,
+    ocaml: Option<PathBuf>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "kebab-case")]
@@ -264,6 +265,7 @@ enum Compiler {
     Csharp,
     Java,
     Kotlin,
+    Ocaml,
 }
 impl Compiler {
     fn is_adapter(self) -> bool {
@@ -287,6 +289,7 @@ impl Compiler {
             Self::Csharp => "csharp",
             Self::Java => "java",
             Self::Kotlin => "kotlin",
+            Self::Ocaml => "ocaml",
         }
     }
 }
@@ -1143,7 +1146,8 @@ pub fn run_cli(args: &[String]) -> Result<Value> {
                 if contracts.complete_sources.contains(name) {
                     ensure!(
                         contracts.sources[name] == files,
-                        "C# source inventory changed during API discovery; rebuild the project"
+                        "{} source inventory changed during API discovery; rebuild the project",
+                        compiler.name()
                     );
                 }
             }
@@ -1559,6 +1563,7 @@ mod naming_tests {
             "csharp",
             "java",
             "kotlin",
+            "ocaml",
         ] {
             let config: Config = toml::from_str(&format!(
                 "[package]\nname='test:names'\nversion='0.1.0'\n[build]\ncompiler='{name}'\n"

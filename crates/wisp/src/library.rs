@@ -402,6 +402,31 @@ mod contract_comparison_tests {
     use super::*;
 
     #[test]
+    fn named_interface_distinguishes_no_result_from_empty_tuple_result() {
+        let mut resolve = Resolve::default();
+        let package = resolve
+            .push_str(
+                "unit.wit",
+                r#"
+            package test:unit;
+            interface api {
+                collect: func();
+                empty: func() -> tuple<>;
+                text: func() -> string;
+            }
+            world root { export api; }
+        "#,
+            )
+            .unwrap();
+        let world = resolve.select_world(&[package], Some("root")).unwrap();
+        let source = rust_source(&resolve, world).unwrap();
+        assert!(source.contains("func_collect().func().typed::<(), ()>"));
+        assert!(source.contains("func_empty().func().typed::<(), ((),)>"));
+        assert!(source.contains("func_text().func().typed::<(), (String,)>"));
+        syn::parse_file(&source).unwrap();
+    }
+
+    #[test]
     fn reconstructs_worker_bindings_from_release_platforms() {
         let mut resolve = Resolve::default();
         let package = resolve
@@ -682,7 +707,7 @@ impl Library {{
     }}
 }}
 "#, binding=world.name.to_upper_camel_case(), store_type=if wasi {"WasiState"}else{"()"},
-store_value=if pure || reactor {crate::library_wasi::PURE_STORE}else if wasi {crate::library_wasi::STORE}else{"()"}, linker_init=if pure {crate::library_wasi::PURE_LINKER_CALL}else if reactor {crate::library_wasi::REACTOR_LINKER}else if wasi {crate::library_wasi::LINKER}else{""}, engine_init=if asynchronous {"let mut config = wasmtime::Config::new(); config.wasm_component_model(true).wasm_component_model_async(true).wasm_component_model_error_context(true).wasm_component_model_more_async_builtins(true).wasm_component_model_async_stackful(true).concurrency_support(true); let engine = wasmtime::Engine::new(&config)?;"}else{"let engine = wasmtime::Engine::default();"}));
+store_value=if pure || reactor {crate::library_wasi::PURE_STORE}else if wasi {crate::library_wasi::STORE}else{"()"}, linker_init=if pure {crate::library_wasi::PURE_LINKER_CALL}else if reactor {crate::library_wasi::REACTOR_LINKER}else if wasi {crate::library_wasi::LINKER}else{""}, engine_init=if asynchronous {"let mut config = wasmtime::Config::new(); config.wasm_component_model(true).wasm_component_model_async(true).wasm_component_model_error_context(true).wasm_component_model_more_async_builtins(true).wasm_component_model_async_stackful(true).concurrency_support(true); let engine = wasmtime::Engine::new(&config)?;"}else if reactor {"let mut config = wasmtime::Config::new(); config.wasm_exceptions(true); let engine = wasmtime::Engine::new(&config)?;"}else{"let engine = wasmtime::Engine::default();"}));
     if wasi {
         source.push_str(crate::library_wasi::STATE);
     }
@@ -908,7 +933,12 @@ impl Client {{
                 let native_method = function.name.to_snake_case();
                 source.push_str(&format!("#[cfg(not(target_arch = \"wasm32\"))]\n{{ let mut state = self.library.access().map_err(CallError::Runtime)?;\nif state.poisoned {{ return Err(CallError::Runtime(\"Component instance is poisoned\".into())); }}\nlet result = {{ let super::State {{ store, bindings, .. }} = &mut *state; bindings.call_{native_method}(store{comma}{native_args}) }};\nlet value = result.map_err(|e| {{ state.poisoned = true; CallError::Runtime(format!(\"{{e:#}}\")) }})?;\n{} }}\n}}\n", if guest_error.is_some(){"value.map_err(CallError::Guest)"}else{"Ok(value)"}, comma=if args.is_empty(){""}else{", "}));
             } else {
-                source.push_str(&format!("#[cfg(not(target_arch = \"wasm32\"))]\n{{ let mut state = self.library.access().map_err(CallError::Runtime)?;\nif state.poisoned {{ return Err(CallError::Runtime(\"Component instance is poisoned\".into())); }}\nlet result = {{ let super::State {{ store, bindings, .. }} = &mut *state; bindings.{accessor}().func_{}().func().typed::<({param_types}), ({return_type},)>(&*store).and_then(|callee| callee.call(store, ({}))).map(|(value,)| value) }};\nlet value = result.map_err(|e| {{ state.poisoned = true; CallError::Runtime(format!(\"{{e:#}}\")) }})?;\n{} }}\n}}\n", function.name.to_snake_case(), if args.is_empty(){String::new()}else{format!("{args},")}, if guest_error.is_some(){"value.map_err(CallError::Guest)"}else{"Ok(value)"}));
+                let (native_results, unpack) = if function.result.is_some() {
+                    (format!("({return_type},)"), ".map(|(value,)| value)")
+                } else {
+                    ("()".to_owned(), "")
+                };
+                source.push_str(&format!("#[cfg(not(target_arch = \"wasm32\"))]\n{{ let mut state = self.library.access().map_err(CallError::Runtime)?;\nif state.poisoned {{ return Err(CallError::Runtime(\"Component instance is poisoned\".into())); }}\nlet result = {{ let super::State {{ store, bindings, .. }} = &mut *state; bindings.{accessor}().func_{}().func().typed::<({param_types}), {native_results}>(&*store).and_then(|callee| callee.call(store, ({}))){unpack} }};\nlet value = result.map_err(|e| {{ state.poisoned = true; CallError::Runtime(format!(\"{{e:#}}\")) }})?;\n{} }}\n}}\n", function.name.to_snake_case(), if args.is_empty(){String::new()}else{format!("{args},")}, if guest_error.is_some(){"value.map_err(CallError::Guest)"}else{"Ok(value)"}));
             }
         }
         source.push_str("}\n");
@@ -970,18 +1000,20 @@ fn cargo_manifest(
     metadata: &crate::library_metadata::Metadata,
     wasi: bool,
     asynchronous: bool,
+    reactor: bool,
     worker: bool,
 ) -> Result<String> {
     let native_dependencies = if worker {
         "serde = { version = \"1\", features = [\"derive\"] }\nserde_json = \"1\"\ntempfile = \"3\"\n".to_owned()
     } else {
         format!(
-            "wasmtime = {{ version = \"=50.0.0\", default-features = false, features = [\"component-model\", \"cranelift\", \"runtime\", \"std\"{}] }}\n{}",
+            "wasmtime = {{ version = \"=50.0.0\", default-features = false, features = [\"component-model\", \"cranelift\", \"runtime\", \"std\"{}{}] }}\n{}",
             if asynchronous {
                 ", \"component-model-async\""
             } else {
                 ""
             },
+            if reactor { ", \"gc\", \"gc-drc\"" } else { "" },
             if wasi {
                 crate::library_wasi::DEPENDENCIES
             } else {
@@ -1088,6 +1120,44 @@ fn targets(wasi: bool, asynchronous: bool, go: bool, pure: bool) -> Value {
     }
     json!(targets)
 }
+// Callers have already validated the component with all supported features.
+// A second validation with exceptions disabled detects this runtime requirement
+// without inferring it from the source language or the presence of WASI imports.
+fn uses_modern_exceptions(component: &[u8]) -> bool {
+    let mut features = wasmparser::WasmFeatures::all();
+    features.remove(wasmparser::WasmFeatures::EXCEPTIONS);
+    wasmparser::Validator::new_with_features(features)
+        .validate_all(component)
+        .is_err()
+}
+
+#[test]
+fn detects_modern_wasm_exceptions() {
+    use wasm_encoder::{
+        Component, Module, ModuleSection, TagKind, TagSection, TagType, TypeSection,
+    };
+    let mut module = Module::new();
+    let mut types = TypeSection::new();
+    types.ty().function([], []);
+    module.section(&types);
+    let mut plain = Component::new();
+    plain.section(&ModuleSection(&module));
+    assert!(!uses_modern_exceptions(&plain.finish()));
+    let mut tags = TagSection::new();
+    tags.tag(TagType {
+        kind: TagKind::Exception,
+        func_type_idx: 0,
+    });
+    module.section(&tags);
+    let mut component = Component::new();
+    component.section(&ModuleSection(&module));
+    let bytes = component.finish();
+    wasmparser::Validator::new_with_features(wasmparser::WasmFeatures::all())
+        .validate_all(&bytes)
+        .unwrap();
+    assert!(uses_modern_exceptions(&bytes));
+}
+
 fn requirements(
     wasi: bool,
     asynchronous: bool,
@@ -1095,10 +1165,18 @@ fn requirements(
     go_platform: Option<&str>,
     pure: bool,
     reactor: bool,
+    exceptions: bool,
 ) -> Value {
+    let mut node_flags = Vec::new();
+    if asynchronous {
+        node_flags.push("--experimental-wasm-jspi");
+    }
+    if exceptions {
+        node_flags.push("--experimental-wasm-exnref");
+    }
     let mut value = json!({"rustNative":{"platforms":["linux-x86_64","macos-aarch64"],"network":if wasi && !pure {"host-network"} else {"none"}},
         "rustComponent":{"target":"wasm32-unknown-unknown","hostImports":"outer-runtime"},
-        "node":{"version":"24.20.0","flags":if asynchronous {vec!["--experimental-wasm-jspi"]} else {vec![]},
+        "node":{"version":"24.20.0","flags":node_flags,
             "futureCancellation":if asynchronous {"unsupported-jco-future-cancellation"} else {"not-applicable"}},
         "browser":{"supported":(!wasi || pure) && !asynchronous,"reason":if wasi && !pure {Some("unsupported-browser-wasi-network")} else if error_context {Some("unsupported-browser-error-context-lifecycle")} else if asynchronous {Some("unsupported-browser-async-lifecycle")} else {None},"initialization":"top-level-await"},
         "errorContext":{"supported":error_context,"nativeCumulativeLiftLimit":if error_context {Some(127)}else{None},"nativeCleanup":if error_context {"Store lifetime"}else{"not-applicable"}},
@@ -1205,25 +1283,30 @@ fn transpile(
     world: WorldId,
 ) -> Result<()> {
     let reactor = crate::library_wasi::reactor_host(resolve, world)?;
+    let exceptions = uses_modern_exceptions(&fs::read(component)?);
     if pure {
         // Pure-WASI packages use the same private import object in Node and the browser.
         // The byte-locked JCO output and both entry points are regenerated by admission.
+        let mut args = vec![
+            jco,
+            "transpile",
+            component.to_str().context("component path UTF8")?,
+            "--out-dir",
+            output.to_str().context("output path UTF8")?,
+            "--name",
+            "guest",
+            "--no-wasi-shim",
+            "--instantiation",
+            "sync",
+        ];
+        if exceptions {
+            args.push("--bindgen-enable-wasm-exnref");
+        }
         command(
             crate::generator_tools::node()?
                 .to_str()
                 .context("Node path UTF8")?,
-            &[
-                jco,
-                "transpile",
-                component.to_str().context("component path UTF8")?,
-                "--out-dir",
-                output.to_str().context("output path UTF8")?,
-                "--name",
-                "guest",
-                "--no-wasi-shim",
-                "--instantiation",
-                "sync",
-            ],
+            &args,
             cwd,
         )?;
         let mut wasm_names = Vec::new();
@@ -1287,6 +1370,9 @@ fn transpile(
     ];
     if asynchronous {
         args.extend(["--async-mode", "jspi"]);
+    }
+    if exceptions {
+        args.push("--bindgen-enable-wasm-exnref");
     }
     if reactor {
         for mapping in &reactor_maps {
@@ -1540,7 +1626,8 @@ pub fn validate(dir: &Path) -> Result<Value> {
                     error_context,
                     go.and_then(|go| go["platform"].as_str()),
                     pure,
-                    reactor
+                    reactor,
+                    uses_modern_exceptions(&component)
                 ),
                 &worker_files
             )?,
@@ -1562,6 +1649,7 @@ pub fn validate(dir: &Path) -> Result<Value> {
                 &metadata,
                 wasi,
                 asynchronous,
+                reactor,
                 worker::supports(&resolve, world),
             )?
             .into_bytes(),
@@ -1601,6 +1689,7 @@ pub fn validate(dir: &Path) -> Result<Value> {
             &metadata,
             wasi,
             asynchronous,
+            reactor,
             worker::supports(&resolve, world),
         )?,
     )?;
@@ -1856,6 +1945,7 @@ pub fn run_cli(args: &[String]) -> Result<Value> {
             &metadata,
             wasi,
             asynchronous,
+            reactor,
             worker::supports(&resolve, world),
         )?,
     )?;
@@ -1970,6 +2060,7 @@ pub fn run_cli(args: &[String]) -> Result<Value> {
             go_platform.as_deref(),
             pure,
             reactor,
+            uses_modern_exceptions(&bytes),
         ),
         &worker_files,
     )?;

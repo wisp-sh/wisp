@@ -14,7 +14,7 @@ pub(super) fn validate(compiler: Compiler, unit: &Unit) -> Result<()> {
     );
     let multiple = matches!(
         compiler,
-        Compiler::Swift | Compiler::Java | Compiler::Kotlin | Compiler::Csharp
+        Compiler::Swift | Compiler::Java | Compiler::Kotlin | Compiler::Csharp | Compiler::Ocaml
     );
     ensure!(
         multiple || unit.sources.len() == 1,
@@ -29,10 +29,13 @@ pub(super) fn validate(compiler: Compiler, unit: &Unit) -> Result<()> {
             "{} requires entry naming the main class",
             compiler.name()
         );
-    } else if !matches!(compiler, Compiler::Python | Compiler::Csharp) {
+    } else if !matches!(
+        compiler,
+        Compiler::Python | Compiler::Csharp | Compiler::Ocaml
+    ) {
         ensure!(
             unit.entry.is_none(),
-            "entry is supported by Java, Kotlin, C# and Python"
+            "entry is supported by Java, Kotlin, C#, Python and OCaml"
         );
     }
     if let Some(entry) = &unit.entry {
@@ -205,6 +208,7 @@ impl Toolchain {
             Compiler::Csharp => &tools.csharp,
             Compiler::Java => &tools.java,
             Compiler::Kotlin => &tools.kotlin,
+            Compiler::Ocaml => &tools.ocaml,
             _ => bail!("compiler does not use a packaged adapter"),
         };
         let variable = if matches!(compiler, Compiler::Typescript)
@@ -235,7 +239,7 @@ impl Toolchain {
             root,
             &[("WISP_WASMTIME", &tools.wasmtime)],
             crate::compiler_hosts::COMMAND_VERSION,
-            if matches!(compiler, Compiler::Goose) {
+            if matches!(compiler, Compiler::Goose | Compiler::Ocaml) {
                 crate::compiler_hosts::Contract::WorkerProtocol
             } else {
                 crate::compiler_hosts::Contract::WasmtimeCli
@@ -243,6 +247,11 @@ impl Toolchain {
         )?;
         let mut environment = BTreeMap::new();
         environment.insert("WISP_WASMTIME".into(), runtime.path.clone());
+        if matches!(compiler, Compiler::Ocaml)
+            && runtime.backend == crate::compiler_hosts::Backend::WorkerProtocol
+        {
+            environment.insert("WISP_WORKER".into(), runtime.path.clone());
+        }
         for (variable, configured) in [
             ("WISP_WASMTIME_PYTHON", &tools.wasmtime_python),
             ("WISP_GOOSE_FRONTEND_HOST", &tools.goose_frontend_host),
@@ -285,6 +294,7 @@ impl Toolchain {
                         | Compiler::Goose
                         | Compiler::Java
                         | Compiler::Kotlin
+                        | Compiler::Ocaml
                 ),
                 "WISP_LLVM" | "WISP_LLVM_TOOLCHAIN" => matches!(
                     compiler,
@@ -293,6 +303,7 @@ impl Toolchain {
                         | Compiler::Goose
                         | Compiler::Java
                         | Compiler::Kotlin
+                        | Compiler::Ocaml
                 ),
                 "WISP_LLVM_SWIFT" => matches!(compiler, Compiler::Swift),
                 "WISP_WASM_TOOLS" | "WISP_WASM_TOOLS_TOOLCHAIN" => matches!(
@@ -306,6 +317,7 @@ impl Toolchain {
                         | Compiler::Swift
                         | Compiler::Java
                         | Compiler::Kotlin
+                        | Compiler::Ocaml
                 ),
                 "WISP_PREVIEW1_ADAPTER" => matches!(
                     compiler,
@@ -316,6 +328,7 @@ impl Toolchain {
                         | Compiler::Swift
                         | Compiler::Java
                         | Compiler::Kotlin
+                        | Compiler::Ocaml
                 ),
                 "WISP_JVM_TOOLCHAIN" | "WISP_TEAVM_TOOLCHAIN" => {
                     matches!(compiler, Compiler::Java | Compiler::Kotlin)
@@ -404,6 +417,23 @@ impl Toolchain {
                 String::from_utf8(read(&path, MAX_SOURCE)?)?,
             );
         }
+        if matches!(self.compiler, Compiler::Ocaml) {
+            let directory = self
+                .script
+                .path
+                .parent()
+                .context("OCaml package directory")?
+                .join("dist/licenses");
+            for entry in fs::read_dir(directory)? {
+                let entry = entry?;
+                ensure!(entry.file_type()?.is_file(), "invalid OCaml runtime notice");
+                let name = entry.file_name().to_string_lossy().into_owned();
+                notices.insert(
+                    format!("ocaml-{name}"),
+                    String::from_utf8(read(&entry.path(), MAX_SOURCE)?)?,
+                );
+            }
+        }
         Ok(notices)
     }
 
@@ -456,7 +486,7 @@ impl Toolchain {
             }
             sources.push(source.join(absolute.strip_prefix(root)?));
         }
-        if !matches!(self.compiler, Compiler::Python) {
+        if !matches!(self.compiler, Compiler::Python | Compiler::Ocaml) {
             for directory in directories {
                 snapshot(root, &directory, source, self.compiler, files, total)?;
             }
@@ -560,6 +590,18 @@ impl Toolchain {
         total: &mut u64,
         commands: &mut Vec<Value>,
     ) -> Result<Vec<u8>> {
+        if matches!(self.compiler, Compiler::Ocaml) {
+            let (_, discovered) = discover_ocaml(root, unit, self)?;
+            stage_discovered_inputs(
+                root,
+                source,
+                self.compiler,
+                &discovered,
+                expected_sources,
+                files,
+                total,
+            )?;
+        }
         if matches!(self.compiler, Compiler::Python) {
             let project = unit
                 .project
@@ -625,6 +667,16 @@ impl Toolchain {
                     module_root.to_string_lossy().into_owned(),
                 ]);
                 wit_args(&mut argv, &wit, resolve, world, false);
+            }
+            Compiler::Ocaml => {
+                argv.extend([
+                    "--project-root".into(),
+                    module_root.to_string_lossy().into_owned(),
+                ]);
+                wit_args(&mut argv, &wit, resolve, world, true);
+                if let Some(entry) = &unit.entry {
+                    argv.extend(["--entry-module".into(), entry.clone()]);
+                }
             }
             Compiler::Csharp => {
                 argv.extend([
@@ -867,6 +919,7 @@ fn source_extension(compiler: Compiler, path: &Path) -> bool {
         Compiler::Swift => extension == Some("swift"),
         Compiler::Java => extension == Some("java"),
         Compiler::Kotlin => extension == Some("kt"),
+        Compiler::Ocaml => matches!(extension, Some("ml" | "mli")),
         _ => false,
     }
 }
@@ -978,6 +1031,91 @@ pub(super) fn validate_component(bytes: &[u8], resolve: &Resolve, world: WorldId
         "Component imports differ from selected WIT world"
     );
     Ok(())
+}
+
+/// OCaml uses its public .mli, parsed by the installed adapter without executing
+/// application code. Keep the discovered hashes for the later staging check.
+pub(super) fn infer_ocaml(
+    root: &Path,
+    unit: &Unit,
+    tools: &Tools,
+) -> Result<(String, BTreeMap<String, String>)> {
+    validate(Compiler::Ocaml, unit)?;
+    let toolchain = Toolchain::load(root, tools, Compiler::Ocaml)?;
+    discover_ocaml(root, unit, &toolchain)
+}
+
+fn discover_ocaml(
+    root: &Path,
+    unit: &Unit,
+    toolchain: &Toolchain,
+) -> Result<(String, BTreeMap<String, String>)> {
+    validate(Compiler::Ocaml, unit)?;
+    let sources = unit
+        .sources
+        .iter()
+        .map(|p| input(root, p))
+        .collect::<Result<Vec<_>>>()?;
+    let project = match &unit.project {
+        Some(path) => input(root, path)?,
+        None => common_parent(&sources)?,
+    };
+    let mut command = Command::new(&toolchain.python.path);
+    command
+        .arg(&toolchain.script.path)
+        .args(&sources)
+        .arg("--project-root")
+        .arg(&project)
+        .arg("--infer")
+        .env("PYTHONDONTWRITEBYTECODE", "1")
+        .stdin(Stdio::null());
+    if let Some(entry) = &unit.entry {
+        command.arg("--entry-module").arg(entry);
+    }
+    let output = command
+        .output()
+        .context("discovering the OCaml public .mli")?;
+    ensure!(
+        output.status.success(),
+        "OCaml API discovery failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    ensure!(
+        output.stdout.len() <= MAX_SOURCE as usize,
+        "OCaml discovery output limit"
+    );
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct Discovery {
+        body: String,
+        project: PathBuf,
+        sources: BTreeMap<String, String>,
+    }
+    let discovery: Discovery =
+        serde_json::from_slice(&output.stdout).context("OCaml API discovery receipt")?;
+    ensure!(
+        discovery.project == project,
+        "OCaml discovery project mismatch"
+    );
+    let mut hashes = BTreeMap::new();
+    for (name, hash) in discovery.sources {
+        let path = input(&project, Path::new(&name))?;
+        ensure!(
+            digest(&read(&path, MAX_SOURCE)?) == hash,
+            "OCaml source changed during API discovery"
+        );
+        hashes.insert(
+            path.strip_prefix(root)?
+                .to_string_lossy()
+                .replace('\\', "/"),
+            hash,
+        );
+    }
+    ensure!(
+        digest(&read(&toolchain.script.path, MAX_SOURCE)?) == toolchain.script.sha256,
+        "OCaml adapter changed during API discovery"
+    );
+    Ok((discovery.body, hashes))
 }
 
 #[cfg(test)]
@@ -1187,6 +1325,124 @@ mod tests {
                 .to_string()
                 .contains("exports differ")
         );
+    }
+
+    #[test]
+    fn ocaml_stages_only_the_discovered_inventory_and_rejects_changes() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("project");
+        fs::create_dir(&root).unwrap();
+        write(root.join("main.ml"), "let add a b = Int32.add a b").unwrap();
+        write(root.join("main.mli"), "val add : int32 -> int32 -> int32").unwrap();
+        write(
+            root.join("unused.bin"),
+            "must not enter the source snapshot",
+        )
+        .unwrap();
+        let expected = BTreeMap::from([
+            ("main.ml".into(), digest(b"let add a b = Int32.add a b")),
+            (
+                "main.mli".into(),
+                digest(b"val add : int32 -> int32 -> int32"),
+            ),
+        ]);
+        let (component, resolve, world) = add_component();
+        let fixture = temp.path().join("fixture.wasm");
+        write(&fixture, &component).unwrap();
+        let script_text = format!(
+            r#"import hashlib,json,pathlib,sys
+root=pathlib.Path(sys.argv[sys.argv.index('--project-root')+1])
+if '--infer' in sys.argv:
+    print(json.dumps({{'body':'add: func(a: s32, b: s32) -> s32;', 'project':str(root),
+                      'sources':{{p.name:hashlib.sha256(p.read_bytes()).hexdigest() for p in root.glob('*.ml*')}}}}))
+else:
+    assert {{p.name for p in root.iterdir()}} == {{'main.ml','main.mli'}}
+    pathlib.Path(sys.argv[sys.argv.index('--output')+1]).write_bytes(pathlib.Path({:?}).read_bytes())
+"#,
+            fixture.to_str().unwrap()
+        );
+        let script = temp.path().join("compile.py");
+        write(&script, &script_text).unwrap();
+        let python = executable(
+            Path::new("/"),
+            &None,
+            "WISP_ADAPTER_TEST_PYTHON_HOST",
+            "python3",
+        )
+        .unwrap();
+        let toolchain = Toolchain {
+            compiler: Compiler::Ocaml,
+            script: Tool {
+                path: script,
+                sha256: digest(script_text.as_bytes()),
+            },
+            python,
+            runtime: crate::compiler_hosts::ExecutionHost {
+                path: "/unused".into(),
+                sha256: String::new(),
+                backend: crate::compiler_hosts::Backend::WorkerProtocol,
+            },
+            environment: BTreeMap::new(),
+        };
+        let source = temp.path().join("staged");
+        fs::create_dir(&source).unwrap();
+        let scratch = temp.path().join("scratch");
+        fs::create_dir(&scratch).unwrap();
+        let cache = temp.path().join("cache");
+        fs::create_dir(&cache).unwrap();
+        let mut source_unit = unit(Compiler::Ocaml, "main.ml");
+        source_unit.project = Some(".".into());
+        let mut added = expected.clone();
+        added.insert("new.ml".into(), digest(b"new"));
+        let mut removed = expected.clone();
+        removed.remove("main.mli");
+        let mut changed = expected.clone();
+        changed.insert("main.ml".into(), digest(b"changed"));
+        for inventory in [added, removed, changed] {
+            let mut files = BTreeMap::new();
+            let mut total = 0;
+            let mut commands = Vec::new();
+            let error = toolchain
+                .compile(
+                    &root,
+                    &source_unit,
+                    &source,
+                    &scratch,
+                    &cache,
+                    &resolve,
+                    world,
+                    false,
+                    Some(&inventory),
+                    &mut files,
+                    &mut total,
+                    &mut commands,
+                )
+                .unwrap_err();
+            assert!(error.to_string().contains("source inventory changed"));
+            assert!(files.is_empty() && commands.is_empty());
+            assert_eq!(fs::read_dir(&source).unwrap().count(), 0);
+        }
+        let mut files = BTreeMap::new();
+        let mut total = 0;
+        let mut commands = Vec::new();
+        let actual = toolchain
+            .compile(
+                &root,
+                &source_unit,
+                &source,
+                &scratch,
+                &cache,
+                &resolve,
+                world,
+                false,
+                Some(&expected),
+                &mut files,
+                &mut total,
+                &mut commands,
+            )
+            .unwrap();
+        assert_eq!(actual, component);
+        assert_eq!(files, expected);
     }
 
     #[test]

@@ -1,0 +1,8 @@
+[package]
+name = "example:ocaml-values"
+version = "0.1.0"
+
+[build]
+compiler = "ocaml"
+project = "."
+sources = ["support.ml", "library.ml"]
