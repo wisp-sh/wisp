@@ -2,6 +2,66 @@
 use super::*;
 use regex::Regex;
 
+pub(super) fn python_contract(
+    root: &Path,
+    unit: &Unit,
+    tools: &Tools,
+    resolve: &mut Resolve,
+    excluded_paths: &[&Path],
+) -> Result<(String, BTreeMap<String, String>, bool)> {
+    crate::build::adapters::validate(Compiler::Python, unit)?;
+    let source = input(root, &unit.sources[0])?;
+    // Preserve the explicit legacy entry selection and adjacent authored WIT.
+    if unit.entry.is_some() || source.with_extension("wit").is_file() {
+        let (body, hashes) = contract(root, unit, Compiler::Python, resolve)?;
+        return Ok((body, hashes, false));
+    }
+    let toolchain = crate::build::adapters::Toolchain::load(root, tools, Compiler::Python)?;
+    let project = unit
+        .project
+        .as_ref()
+        .map(|path| input(root, path))
+        .transpose()?;
+    let analysis =
+        toolchain.python_analysis(&source, root, project.as_deref(), false, excluded_paths)?;
+    let declarations = analysis["declarations"]
+        .as_str()
+        .context("Python inferred declarations")?
+        .to_owned();
+    let mut hashes = BTreeMap::new();
+    for (path, expected) in analysis["inputs"]
+        .as_object()
+        .context("Python inference inputs")?
+    {
+        let relative = Path::new(path)
+            .strip_prefix(root)
+            .context("Python inference input escapes project root")?;
+        let absolute = input(root, relative)?;
+        let actual = digest(&read(&absolute, MAX_SOURCE)?);
+        ensure!(
+            expected.as_str() == Some(&actual),
+            "Python input changed during inference: {path}"
+        );
+        hashes.insert(
+            absolute
+                .strip_prefix(root)?
+                .to_string_lossy()
+                .replace('\\', "/"),
+            actual,
+        );
+    }
+    ensure!(
+        hashes.contains_key(
+            &source
+                .strip_prefix(root)?
+                .to_string_lossy()
+                .replace('\\', "/")
+        ),
+        "Python inference omitted the entrypoint hash"
+    );
+    Ok((declarations, hashes, true))
+}
+
 fn package_item(resolve: &Resolve, package: PackageId, item: &str) -> String {
     let name = &resolve.packages[package].name;
     format!(

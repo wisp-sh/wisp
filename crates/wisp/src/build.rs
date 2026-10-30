@@ -432,6 +432,19 @@ fn copy_file(
     files: &mut BTreeMap<String, String>,
     total: &mut u64,
 ) -> Result<()> {
+    copy_file_bounded(root, path, to, files, total, MAX_SOURCE, 4096)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn copy_file_bounded(
+    root: &Path,
+    path: &Path,
+    to: &Path,
+    files: &mut BTreeMap<String, String>,
+    total: &mut u64,
+    max_bytes: u64,
+    max_files: usize,
+) -> Result<()> {
     let relative = path
         .strip_prefix(root)?
         .to_str()
@@ -443,7 +456,7 @@ fn copy_file(
     }
     *total += bytes.len() as u64;
     ensure!(
-        *total <= MAX_SOURCE && files.len() < 4096,
+        *total <= max_bytes && files.len() < max_files,
         "source snapshot size/count limit"
     );
     files.insert(relative.clone(), digest(&bytes));
@@ -721,8 +734,19 @@ pub fn run_cli(args: &[String]) -> Result<Value> {
         "installed package dependencies currently require inferred source contracts"
     );
     let mut resolve = Resolve::default();
+    let output = output
+        .map(PathBuf::from)
+        .unwrap_or_else(|| root.join("dist"));
+    let cache = cache
+        .map(PathBuf::from)
+        .unwrap_or_else(|| root.join(".wisp-cache"));
     let inferred_contracts = if inferred {
-        Some(infer::generate(&mut config, root, &mut resolve)?)
+        Some(infer::generate(
+            &mut config,
+            root,
+            &mut resolve,
+            &[&output, &cache],
+        )?)
     } else {
         None
     };
@@ -903,9 +927,6 @@ pub fn run_cli(args: &[String]) -> Result<Value> {
         }
         worlds.insert(name.clone(), world);
     }
-    let output = output
-        .map(PathBuf::from)
-        .unwrap_or_else(|| root.join("dist"));
     ensure!(
         !output.try_exists()?,
         "output already exists; choose a fresh directory"
@@ -915,9 +936,6 @@ pub fn run_cli(args: &[String]) -> Result<Value> {
         .filter(|p| !p.as_os_str().is_empty())
         .unwrap_or(Path::new("."));
     fs::create_dir_all(parent)?;
-    let cache = cache
-        .map(PathBuf::from)
-        .unwrap_or_else(|| root.join(".wisp-cache"));
     let output_location = prospective(&output)?;
     let cache_location = prospective(&cache)?;
     ensure!(
@@ -1113,6 +1131,12 @@ pub fn run_cli(args: &[String]) -> Result<Value> {
                 &cache,
                 &resolve,
                 world,
+                inferred_contracts
+                    .as_ref()
+                    .is_some_and(|contracts| contracts.python_inferred.contains(name)),
+                inferred_contracts
+                    .as_ref()
+                    .and_then(|contracts| contracts.sources.get(name)),
                 &mut files,
                 &mut total,
                 &mut commands,
@@ -1122,7 +1146,8 @@ pub fn run_cli(args: &[String]) -> Result<Value> {
                 if contracts.complete_sources.contains(name) {
                     ensure!(
                         contracts.sources[name] == files,
-                        "C# source inventory changed during API discovery; rebuild the project"
+                        "{} source inventory changed during API discovery; rebuild the project",
+                        compiler.name()
                     );
                 }
             }

@@ -112,7 +112,81 @@ fn executable(
     })
 }
 
+#[allow(clippy::too_many_arguments)]
+pub(super) fn stage_discovered_inputs(
+    root: &Path,
+    destination: &Path,
+    compiler: Compiler,
+    discovered: &BTreeMap<String, String>,
+    expected_sources: Option<&BTreeMap<String, String>>,
+    files: &mut BTreeMap<String, String>,
+    total: &mut u64,
+) -> Result<()> {
+    ensure!(
+        expected_sources.is_none_or(|expected| expected == discovered),
+        "{} source inventory changed while inferring the public API; rebuild the project",
+        compiler.name()
+    );
+    for (path, expected) in discovered {
+        let absolute = input(root, Path::new(path))?;
+        adapter_copy_file(root, &absolute, destination, compiler, files, total)?;
+        ensure!(
+            files.get(path) == Some(expected),
+            "{} input changed during staging: {path}",
+            compiler.name()
+        );
+    }
+    Ok(())
+}
+
 impl Toolchain {
+    pub(super) fn python_analysis(
+        &self,
+        source: &Path,
+        root: &Path,
+        package_root: Option<&Path>,
+        inputs_only: bool,
+        excluded_paths: &[&Path],
+    ) -> Result<Value> {
+        let script = self.script.path.with_file_name("infer.py");
+        let mut command = Command::new(&self.python.path);
+        command
+            .arg(&script)
+            .arg(source)
+            .arg(if inputs_only {
+                "--inputs"
+            } else {
+                "--analysis"
+            })
+            .arg("--dependency-root")
+            .arg(root);
+        if let Some(path) = package_root {
+            command.arg("--package-root").arg(path);
+        }
+        for path in excluded_paths {
+            command.arg("--exclude-path").arg(path);
+        }
+        let result = command
+            .env_clear()
+            .env("PATH", std::env::var_os("PATH").unwrap_or_default())
+            .env("PYTHONDONTWRITEBYTECODE", "1")
+            .envs(&self.environment)
+            .stdin(Stdio::null())
+            .output()
+            .context("running packaged guest Python contract inference")?;
+        ensure!(
+            result.status.success(),
+            "Python contract inference failed: {}{}",
+            String::from_utf8_lossy(&result.stdout),
+            String::from_utf8_lossy(&result.stderr)
+        );
+        ensure!(
+            result.stdout.len() <= MAX_SOURCE as usize,
+            "Python inferred contract exceeds size limit"
+        );
+        Ok(serde_json::from_slice(&result.stdout).context("Python analysis JSON")?)
+    }
+
     pub(super) fn load(root: &Path, tools: &Tools, compiler: Compiler) -> Result<Self> {
         let configured = match compiler {
             Compiler::Zig => &tools.zig,
@@ -407,13 +481,15 @@ impl Toolchain {
                     self.compiler.name(),
                     path.display()
                 );
-                copy_file(root, &absolute, source, files, total)?;
+                adapter_copy_file(root, &absolute, source, self.compiler, files, total)?;
                 directories.insert(absolute.parent().context("source directory")?.to_path_buf());
             }
             sources.push(source.join(absolute.strip_prefix(root)?));
         }
-        for directory in directories {
-            snapshot(root, &directory, source, self.compiler, files, total)?;
+        if !matches!(self.compiler, Compiler::Python | Compiler::Ocaml) {
+            for directory in directories {
+                snapshot(root, &directory, source, self.compiler, files, total)?;
+            }
         }
         let module_root = match &project {
             Some(project) => source.join(project.strip_prefix(root)?),
@@ -508,10 +584,65 @@ impl Toolchain {
         cache: &Path,
         resolve: &Resolve,
         world: WorldId,
+        python_inferred: bool,
+        expected_sources: Option<&BTreeMap<String, String>>,
         files: &mut BTreeMap<String, String>,
         total: &mut u64,
         commands: &mut Vec<Value>,
     ) -> Result<Vec<u8>> {
+        if matches!(self.compiler, Compiler::Ocaml) {
+            let (_, discovered) = discover_ocaml(root, unit, self)?;
+            stage_discovered_inputs(
+                root,
+                source,
+                self.compiler,
+                &discovered,
+                expected_sources,
+                files,
+                total,
+            )?;
+        }
+        if matches!(self.compiler, Compiler::Python) {
+            let project = unit
+                .project
+                .as_ref()
+                .map(|path| input(root, path))
+                .transpose()?;
+            let entry = input(root, &unit.sources[0])?;
+            let analysis =
+                self.python_analysis(&entry, root, project.as_deref(), true, &[cache, scratch])?;
+            let discovered = analysis["inputs"]
+                .as_object()
+                .context("Python staging inputs")?
+                .iter()
+                .map(|(path, hash)| {
+                    let relative = Path::new(path)
+                        .strip_prefix(root)
+                        .context("Python staging input escapes project root")?
+                        .to_str()
+                        .context("UTF8 Python staging path")?
+                        .replace('\\', "/");
+                    Ok((
+                        relative,
+                        hash.as_str().context("Python staging hash")?.to_owned(),
+                    ))
+                })
+                .collect::<Result<BTreeMap<_, _>>>()?;
+            let expected = if python_inferred {
+                Some(expected_sources.context("Python inferred input inventory is missing")?)
+            } else {
+                None
+            };
+            stage_discovered_inputs(
+                root,
+                source,
+                self.compiler,
+                &discovered,
+                expected,
+                files,
+                total,
+            )?;
+        }
         let (sources, module_root) = self.snapshot_inputs(root, unit, source, files, total)?;
         let wit = scratch.join("world.wit");
         write(&wit, world_text(resolve, world)?)?;
@@ -608,7 +739,18 @@ impl Toolchain {
                 .into(),
             ]),
             Compiler::Python => {
-                if !legacy_python_contract(resolve, world) {
+                if !legacy_python_contract(resolve, world)? {
+                    argv.extend([
+                        "--dependency-root".into(),
+                        source.to_string_lossy().into_owned(),
+                    ]);
+                    if python_inferred {
+                        argv.push("--inferred".into());
+                    }
+                    argv.extend([
+                        "--cache-dir".into(),
+                        cache.join("python").to_string_lossy().into_owned(),
+                    ]);
                     ensure!(
                         unit.entry.is_none(),
                         "entry is only supported by the legacy scalar Python adapter"
@@ -706,19 +848,29 @@ impl Toolchain {
     }
 }
 
-fn legacy_python_contract(resolve: &Resolve, world: WorldId) -> bool {
+fn legacy_python_contract(resolve: &Resolve, world: WorldId) -> Result<bool> {
     let exports = &resolve.worlds[world].exports;
     if exports.len() != 1 {
-        return false;
+        return Ok(false);
     }
     let Some(WorldItem::Interface { id, .. }) = exports.values().next() else {
-        return false;
+        return Ok(false);
     };
     let interface = &resolve.interfaces[*id];
-    interface.name.as_deref() == Some("api")
+    if !(interface.name.as_deref() == Some("api")
         && interface.package.is_some_and(|package| {
             resolve.packages[package].name.to_string() == "wisp:python@0.1.0"
-        })
+        }))
+    {
+        return Ok(false);
+    }
+    let mut legacy = Resolve::default();
+    let package = legacy.push_str("python-legacy.wit", "package wisp:python@0.1.0; interface api { validate: func() -> result<_, string>; add: func(a: s32, b: s32) -> s32; runtime-info: func() -> string; } world library { export api; }")?;
+    let legacy_world = legacy.select_world(&[package], Some("library"))?;
+    Ok(crate::library::exports_match(
+        &crate::wit_model::AbiModel::from_resolve(resolve, world)?,
+        &crate::wit_model::AbiModel::from_resolve(&legacy, legacy_world)?,
+    ))
 }
 
 fn wit_args(
@@ -772,6 +924,31 @@ fn source_extension(compiler: Compiler, path: &Path) -> bool {
     }
 }
 
+fn adapter_copy_file(
+    root: &Path,
+    path: &Path,
+    destination: &Path,
+    compiler: Compiler,
+    files: &mut BTreeMap<String, String>,
+    total: &mut u64,
+) -> Result<()> {
+    if matches!(compiler, Compiler::Python) {
+        // Staging also includes compressed wheels and build metadata, which are
+        // outside the 16 MiB decoded source/data bundle budget.
+        copy_file_bounded(
+            root,
+            path,
+            destination,
+            files,
+            total,
+            64 * 1024 * 1024,
+            16384,
+        )
+    } else {
+        copy_file(root, path, destination, files, total)
+    }
+}
+
 fn snapshot(
     root: &Path,
     directory: &Path,
@@ -792,6 +969,7 @@ fn snapshot(
             .any(|part| part.as_os_str() == "node_modules");
         if name.starts_with('.')
             || name == "node_modules" && !javascript
+            || name == "out" && directory == root && matches!(compiler, Compiler::Python)
             || matches!(name, "target" | "dist" | "build" | "work") && !in_dependency
             || matches!(compiler, Compiler::Csharp) && matches!(name, "bin" | "obj")
             || matches!(name, "__pycache__" | "zig-out")
@@ -815,7 +993,7 @@ fn snapshot(
             );
             // Compilers can read non-source assets, such as Zig @embedFile data.
             // copy_file enforces the same aggregate budget and records their hashes.
-            copy_file(root, &path, destination, files, total)?;
+            adapter_copy_file(root, &path, destination, compiler, files, total)?;
         }
     }
     Ok(())
@@ -864,6 +1042,15 @@ pub(super) fn infer_ocaml(
 ) -> Result<(String, BTreeMap<String, String>)> {
     validate(Compiler::Ocaml, unit)?;
     let toolchain = Toolchain::load(root, tools, Compiler::Ocaml)?;
+    discover_ocaml(root, unit, &toolchain)
+}
+
+fn discover_ocaml(
+    root: &Path,
+    unit: &Unit,
+    toolchain: &Toolchain,
+) -> Result<(String, BTreeMap<String, String>)> {
+    validate(Compiler::Ocaml, unit)?;
     let sources = unit
         .sources
         .iter()
@@ -998,14 +1185,60 @@ mod tests {
     }
 
     #[test]
+    fn discovered_inventory_rejects_added_removed_and_changed_inputs_before_staging() {
+        let project = tempfile::tempdir().unwrap();
+        write(project.path().join("main.py"), "original").unwrap();
+        let expected = BTreeMap::from([("main.py".to_owned(), digest(b"original"))]);
+        let changed = BTreeMap::from([("main.py".to_owned(), digest(b"changed"))]);
+        let mut added = expected.clone();
+        added.insert("new.py".into(), digest(b"new"));
+        let destination = project.path().join("staged");
+        for discovered in [added, BTreeMap::new(), changed] {
+            let mut files = BTreeMap::new();
+            let mut total = 0;
+            let error = stage_discovered_inputs(
+                project.path(),
+                &destination,
+                Compiler::Python,
+                &discovered,
+                Some(&expected),
+                &mut files,
+                &mut total,
+            )
+            .unwrap_err();
+            assert!(error.to_string().contains("source inventory changed"));
+            assert!(files.is_empty());
+            assert_eq!(total, 0);
+            assert!(!destination.exists());
+        }
+        // Discovery can be unchanged while the actual bytes change before copy.
+        write(project.path().join("main.py"), "changed").unwrap();
+        let error = stage_discovered_inputs(
+            project.path(),
+            &destination,
+            Compiler::Python,
+            &expected,
+            Some(&expected),
+            &mut BTreeMap::new(),
+            &mut 0,
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("input changed during staging"));
+    }
+
+    #[test]
     fn distinguishes_legacy_python_api_from_authored_contracts() {
         let mut resolve = Resolve::default();
-        let package = resolve.push_str("legacy.wit", "package wisp:python@0.1.0; interface api { add: func(a: s32, b: s32) -> s32; } world legacy { export api; }").unwrap();
+        let package = resolve.push_str("legacy.wit", "package wisp:python@0.1.0; interface api { validate: func() -> result<_, string>; add: func(a: s32, b: s32) -> s32; runtime-info: func() -> string; } world legacy { export api; }").unwrap();
         let world = resolve.select_world(&[package], Some("legacy")).unwrap();
-        assert!(legacy_python_contract(&resolve, world));
+        assert!(legacy_python_contract(&resolve, world).unwrap());
         let package = resolve.push_str("library.wit", "package demo:python@0.1.0; world library { export greet: func(name: string) -> string; }").unwrap();
         let world = resolve.select_world(&[package], Some("library")).unwrap();
-        assert!(!legacy_python_contract(&resolve, world));
+        assert!(!legacy_python_contract(&resolve, world).unwrap());
+        let mut resolve = Resolve::default();
+        let package = resolve.push_str("authored.wit", "package wisp:python@0.1.0; interface api { add: func(a: s64, b: s64) -> s64; } world library { export api; }").unwrap();
+        let world = resolve.select_world(&[package], Some("library")).unwrap();
+        assert!(!legacy_python_contract(&resolve, world).unwrap());
     }
 
     #[test]
@@ -1095,6 +1328,124 @@ mod tests {
     }
 
     #[test]
+    fn ocaml_stages_only_the_discovered_inventory_and_rejects_changes() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("project");
+        fs::create_dir(&root).unwrap();
+        write(root.join("main.ml"), "let add a b = Int32.add a b").unwrap();
+        write(root.join("main.mli"), "val add : int32 -> int32 -> int32").unwrap();
+        write(
+            root.join("unused.bin"),
+            "must not enter the source snapshot",
+        )
+        .unwrap();
+        let expected = BTreeMap::from([
+            ("main.ml".into(), digest(b"let add a b = Int32.add a b")),
+            (
+                "main.mli".into(),
+                digest(b"val add : int32 -> int32 -> int32"),
+            ),
+        ]);
+        let (component, resolve, world) = add_component();
+        let fixture = temp.path().join("fixture.wasm");
+        write(&fixture, &component).unwrap();
+        let script_text = format!(
+            r#"import hashlib,json,pathlib,sys
+root=pathlib.Path(sys.argv[sys.argv.index('--project-root')+1])
+if '--infer' in sys.argv:
+    print(json.dumps({{'body':'add: func(a: s32, b: s32) -> s32;', 'project':str(root),
+                      'sources':{{p.name:hashlib.sha256(p.read_bytes()).hexdigest() for p in root.glob('*.ml*')}}}}))
+else:
+    assert {{p.name for p in root.iterdir()}} == {{'main.ml','main.mli'}}
+    pathlib.Path(sys.argv[sys.argv.index('--output')+1]).write_bytes(pathlib.Path({:?}).read_bytes())
+"#,
+            fixture.to_str().unwrap()
+        );
+        let script = temp.path().join("compile.py");
+        write(&script, &script_text).unwrap();
+        let python = executable(
+            Path::new("/"),
+            &None,
+            "WISP_ADAPTER_TEST_PYTHON_HOST",
+            "python3",
+        )
+        .unwrap();
+        let toolchain = Toolchain {
+            compiler: Compiler::Ocaml,
+            script: Tool {
+                path: script,
+                sha256: digest(script_text.as_bytes()),
+            },
+            python,
+            runtime: crate::compiler_hosts::ExecutionHost {
+                path: "/unused".into(),
+                sha256: String::new(),
+                backend: crate::compiler_hosts::Backend::WorkerProtocol,
+            },
+            environment: BTreeMap::new(),
+        };
+        let source = temp.path().join("staged");
+        fs::create_dir(&source).unwrap();
+        let scratch = temp.path().join("scratch");
+        fs::create_dir(&scratch).unwrap();
+        let cache = temp.path().join("cache");
+        fs::create_dir(&cache).unwrap();
+        let mut source_unit = unit(Compiler::Ocaml, "main.ml");
+        source_unit.project = Some(".".into());
+        let mut added = expected.clone();
+        added.insert("new.ml".into(), digest(b"new"));
+        let mut removed = expected.clone();
+        removed.remove("main.mli");
+        let mut changed = expected.clone();
+        changed.insert("main.ml".into(), digest(b"changed"));
+        for inventory in [added, removed, changed] {
+            let mut files = BTreeMap::new();
+            let mut total = 0;
+            let mut commands = Vec::new();
+            let error = toolchain
+                .compile(
+                    &root,
+                    &source_unit,
+                    &source,
+                    &scratch,
+                    &cache,
+                    &resolve,
+                    world,
+                    false,
+                    Some(&inventory),
+                    &mut files,
+                    &mut total,
+                    &mut commands,
+                )
+                .unwrap_err();
+            assert!(error.to_string().contains("source inventory changed"));
+            assert!(files.is_empty() && commands.is_empty());
+            assert_eq!(fs::read_dir(&source).unwrap().count(), 0);
+        }
+        let mut files = BTreeMap::new();
+        let mut total = 0;
+        let mut commands = Vec::new();
+        let actual = toolchain
+            .compile(
+                &root,
+                &source_unit,
+                &source,
+                &scratch,
+                &cache,
+                &resolve,
+                world,
+                false,
+                Some(&expected),
+                &mut files,
+                &mut total,
+                &mut commands,
+            )
+            .unwrap();
+        assert_eq!(actual, component);
+        assert_eq!(files, expected);
+    }
+
+    #[test]
     fn stages_sources_and_runs_each_packaged_adapter() {
         let python = executable(
             Path::new("/"),
@@ -1118,7 +1469,6 @@ mod tests {
             (Compiler::Csharp, "add.cs"),
             (Compiler::Java, "Main.java"),
             (Compiler::Kotlin, "Main.kt"),
-            (Compiler::Ocaml, "main.ml"),
         ] {
             let temp = tempfile::tempdir().unwrap();
             let root = temp.path().join("project");
@@ -1155,6 +1505,26 @@ mod tests {
                 fixture.to_str().unwrap()
             );
             write(&script, &script_text).unwrap();
+            if matches!(compiler, Compiler::Python) {
+                let metadata = root.join("dist/requirements.txt");
+                write(&metadata, "local==1.0").unwrap();
+                write(root.join("out/previous.wasm"), "old generated output").unwrap();
+                write(root.join("unused.bin"), "not selected by Python discovery").unwrap();
+                let inventory = BTreeMap::from([
+                    (root.join(filename), digest(b"source payload")),
+                    (root.join("main.wit"), digest(b"contract snapshot")),
+                    (root.join("answer.txt"), digest(b"*")),
+                    (metadata.clone(), digest(b"local==1.0")),
+                ]);
+                write(
+                    temp.path().join("infer.py"),
+                    format!(
+                        "print({:?})",
+                        serde_json::json!({"inputs": inventory}).to_string()
+                    ),
+                )
+                .unwrap();
+            }
             let toolchain = Toolchain {
                 compiler,
                 script: Tool {
@@ -1182,6 +1552,14 @@ mod tests {
             let mut total = 0;
             let mut commands = Vec::new();
             let mut source_unit = unit(compiler, filename);
+            let expected_sources = matches!(compiler, Compiler::Python).then(|| {
+                BTreeMap::from([
+                    (filename.to_owned(), digest(b"source payload")),
+                    ("main.wit".into(), digest(b"contract snapshot")),
+                    ("answer.txt".into(), digest(b"*")),
+                    ("dist/requirements.txt".into(), digest(b"local==1.0")),
+                ])
+            });
             if matches!(compiler, Compiler::Python | Compiler::Csharp) {
                 source_unit.project = Some(".".into());
             }
@@ -1201,6 +1579,8 @@ mod tests {
                     &cache,
                     &resolve,
                     world,
+                    matches!(compiler, Compiler::Python),
+                    expected_sources.as_ref(),
                     &mut files,
                     &mut total,
                     &mut commands,
@@ -1236,7 +1616,30 @@ mod tests {
                 assert!(!arguments.iter().any(|value| value == "--component"));
             }
             if matches!(compiler, Compiler::Python) {
+                assert!(!files.contains_key("out/previous.wasm"));
+                assert!(!files.contains_key("unused.bin"));
+                assert_eq!(
+                    files.get("dist/requirements.txt"),
+                    Some(&digest(b"local==1.0"))
+                );
                 let arguments = commands[0]["arguments"].as_array().unwrap();
+                assert!(arguments.iter().any(|value| value == "--inferred"));
+                let dependency_root_index = arguments
+                    .iter()
+                    .position(|value| value == "--dependency-root")
+                    .unwrap();
+                assert_eq!(
+                    Path::new(arguments[dependency_root_index + 1].as_str().unwrap()),
+                    source.as_path()
+                );
+                let cache_index = arguments
+                    .iter()
+                    .position(|value| value == "--cache-dir")
+                    .unwrap();
+                assert_eq!(
+                    Path::new(arguments[cache_index + 1].as_str().unwrap()),
+                    cache.join("python")
+                );
                 let index = arguments
                     .iter()
                     .position(|value| value == "--package-root")
@@ -1247,6 +1650,57 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn python_inference_calls_the_packaged_guest_driver_and_reports_errors() {
+        let temp = tempfile::tempdir().unwrap();
+        let source = temp.path().join("api.py");
+        write(&source, "raise RuntimeError('must not run on the host')").unwrap();
+        let script = temp.path().join("infer.py");
+        write(&script, "import sys\nassert sys.argv[1].endswith('api.py')\nassert sys.argv[2] == '--analysis'\nprint('{\"declarations\": \"ready: func() -> bool;\", \"inputs\": {}}')\n").unwrap();
+        let toolchain = Toolchain {
+            compiler: Compiler::Python,
+            script: Tool {
+                path: temp.path().join("compile.py"),
+                sha256: String::new(),
+            },
+            python: executable(
+                Path::new("/"),
+                &None,
+                "WISP_ADAPTER_TEST_PYTHON_HOST",
+                "python3",
+            )
+            .unwrap(),
+            runtime: crate::compiler_hosts::ExecutionHost {
+                path: "/unused".into(),
+                sha256: String::new(),
+                backend: crate::compiler_hosts::Backend::WasmtimeCli,
+            },
+            environment: BTreeMap::new(),
+        };
+        let analysis = toolchain
+            .python_analysis(&source, temp.path(), None, false, &[])
+            .unwrap();
+        let wit = analysis["declarations"].as_str().unwrap();
+        Resolve::default()
+            .push_str(
+                "inferred.wit",
+                &format!(
+                    "package test:python; interface api {{ {wit} }} world library {{ export api; }}"
+                ),
+            )
+            .unwrap();
+        write(
+            &script,
+            "raise SystemExit('function bad: unsupported Python type dict[str, int]')",
+        )
+        .unwrap();
+        let error = toolchain
+            .python_analysis(&source, temp.path(), None, false, &[])
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("function bad: unsupported Python type dict[str, int]"));
     }
 
     #[cfg(unix)]

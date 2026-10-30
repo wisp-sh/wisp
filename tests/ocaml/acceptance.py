@@ -68,11 +68,13 @@ def main():
     result=run([env['WISP_WASMTIME'],'run','-W','exceptions=y','--dir',f'{command}::/',command/'check.wasm'],environment=guarded)
     assert result=='42' and (command/'output.bin').read_bytes()==bytes([0,255,128,1])
     project=out/'project'; shutil.copytree(ROOT/'examples/build-ocaml',project)
+    (project/'unused.bin').write_bytes(b'not an OCaml source input')
     release=out/'release'
     run([cli,'build',project,'--out',release,'--cache',out/'cache'],environment=guarded)
     run([cli,'library','validate',release])
     receipt=json.loads((release/'build/build.json').read_text())
     assert receipt['contractMode']=='inferred' and receipt['componentSha256']==digest(release/'component.wasm')
+    assert set(receipt['units']['application']['inputs']) == {'library.ml','library.mli','support.ml'}
     assert not attempts.read_text(), 'native application compiler was invoked'
     candidate_receipts=[x['adapterReceipt'] for x in receipt['units']['application']['commands'] if 'adapterReceipt' in x]
     assert len(candidate_receipts)==1 and candidate_receipts[0]['fullyWasmHostedBuild']

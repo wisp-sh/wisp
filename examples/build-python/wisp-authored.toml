@@ -1,0 +1,10 @@
+[package]
+name = "demo:python-library"
+version = "0.1.0"
+
+[build]
+compiler = "python"
+project = "."
+sources = ["authored.py"]
+wit = "library.wit"
+world = "library"

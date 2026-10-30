@@ -1,20 +1,19 @@
-# Python library with a typed Component API
+# Python library with an inferred Component API
 
-This example re-exports functions from the local `arithmetic_helpers` package.
-Its `project = "."` setting bundles the package alongside the entrypoint.
-It exports ordinary Python functions for Unicode strings, integer
-lists, records and typed errors. Its authored WIT contract defines the API.
+`main.py` exposes annotated functions and imports its dataclass and enum from
+`models.py`. It reexports `greet` from a local package, which reads a bundled
+text resource through `importlib.resources`. Wisp
+asks guest CPython to infer the contract, then obtains a matching runtime from
+the installed Python toolchain. No authored WIT or manual template command is
+needed. Local package imports still work through `project = "."`.
 
-Provision the base Python toolchain and this contract's runtime template from
-the buildtools checkout:
-
-```sh
-python3 python/bootstrap.py
-python3 python/bootstrap_contract.py --wit /path/to/wisp/examples/build-python/library.wit --world library --rebuild
-export WISP_PYTHON_TOOLCHAIN="$PWD/python"
-```
-
-Then build from the Wisp checkout with its compiler execution hosts configured:
+Install checksum-pinned `python.wisp.zip` and `wasm-tools.wisp.zip` bundles with
+`wisp toolchain install`, then configure Wisp's execution hosts. The
+[Python acceptance checklist](../../docs/python-source-support.md) describes the
+clean installation and real consumer checks. For a
+local buildtools checkout, run `python3 python/bootstrap.py` once there and set
+`WISP_PYTHON_TOOLCHAIN` to its `python` directory. Automatic provisioning currently
+uses the package's Linux x86_64 bootstrap tools. Then:
 
 ```sh
 wisp build examples/build-python --component-only --out out/python-library
@@ -24,12 +23,24 @@ wasmtime run --invoke 'checked(-1)' out/python-library/component.wasm
 ```
 
 The results are `"Hello, 世界!"`, `42` and `err("value must be nonnegative")`.
-The `birthday` function accepts and returns the generated `Person` record.
+The API also accepts records, enums, byte buffers and optional strings. Python
+`int` maps to WIT `s64`, and `float` maps to `f64`. `Result[T, E]` declares a typed
+error. Return the success value directly or raise `componentize_py_types.Err(E)`.
 
-A template belongs to a public contract. Changing function bodies requires only
-`wisp build`; changing the WIT API requires provisioning a matching template.
-Application source compiles and initializes inside guest CPython. Native
-componentize-py is used only to provision the reusable runtime template.
+The first build of an API can be slow. The toolchain provisions its CPython
+snapshot using bundled, pinned native componentize-py and bootstrap tools. That
+step reads only WIT. Wisp caches it under `.wisp-cache/python/`, or your `--cache`
+directory. Function-body changes reuse the template; contract or discovered stdlib
+import changes select a new one. Stdlib imports are discovered inside Wasm. Application parsing, compilation and initialization run inside Wasm.
 
-Changes to any module under the source root are included in the build receipt.
-Existing templates need a one-time rebuild to enable the package import loader.
+`wisp-authored.toml`, `authored.py` and `library.wit` retain the authored-WIT
+variant, including its explicit integer widths:
+
+```sh
+wisp build examples/build-python/wisp-authored.toml --component-only --out out/python-authored
+```
+
+Both paths provision missing templates automatically and build without network
+access. For third-party modules, add pinned project dependencies plus a
+`python-deps.lock.json` pointing to hash-checked local wheels or vendor trees.
+See [project builds](../../docs/project-builds.md) for the lock format and limits.

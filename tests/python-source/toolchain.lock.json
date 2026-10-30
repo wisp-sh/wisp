@@ -1,0 +1,7 @@
+{
+  "schema": 1,
+  "repository": "wisp-sh/wisp-buildtools",
+  "commit": "c91ef35c797e402a7c935ab2da93b72237a22afd",
+  "workflow": ".github/workflows/ci.yml",
+  "artifact": "python-linux-x86_64"
+}

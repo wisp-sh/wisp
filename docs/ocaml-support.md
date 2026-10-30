@@ -37,7 +37,9 @@ List local or vendored modules in dependency order. Adjacent `.mli` files are
 included automatically. The project snapshot includes `.ml` and `.mli` files,
 with at most 4,096 files and 32 MiB total. Dependencies must already be local;
 the source adapter does not resolve opam packages or execute Dune/PPX. A source
-or interface change between discovery and staging rejects the build. Receipts
+or interface change, addition or removal between discovery and staging rejects
+an inferred build before compilation. Wisp stages only the discovered source
+inventory through the shared bounded-copy helper. Receipts
 hash the actual staged sources and the installed compiler manifest.
 
 An authored `build.wit` can select a different package/interface identity. Its

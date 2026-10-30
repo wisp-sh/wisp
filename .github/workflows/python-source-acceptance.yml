@@ -1,0 +1,177 @@
+name: Python source and installed compiler acceptance
+on:
+  push:
+    paths:
+      - 'tests/python-source/**'
+      - '.github/workflows/python-source-acceptance.yml'
+  pull_request:
+    paths:
+      - 'tests/python-source/**'
+      - '.github/workflows/python-source-acceptance.yml'
+  workflow_dispatch:
+    inputs:
+      toolchain_run_id:
+        description: Successful buildtools CI run at the source commit in tests/python-source/toolchain.lock.json
+        required: true
+        type: string
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: python-source-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: true
+jobs:
+  acceptance-start:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    permissions:
+      statuses: write
+    steps:
+      - name: Mark the exact Wisp commit pending
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api --method POST "repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
+            -f state=pending -f context='Python executed acceptance' \
+            -f description='Pinned compiler installation and full consumer acceptance pending' \
+            -f target_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+  evidence-contract:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - run: python3 -m unittest discover -s tests/python-source -v
+  compiler:
+    if: github.event_name == 'workflow_dispatch'
+    needs: [acceptance-start, evidence-contract]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    env:
+      CARGO_BUILD_JOBS: '1'
+      CARGO_INCREMENTAL: '0'
+      CARGO_PROFILE_DEV_DEBUG: '0'
+      RUSTUP_TOOLCHAIN: '1.98.1'
+      PYTHONDONTWRITEBYTECODE: '1'
+      BINARYEN_CORES: '1'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.13'
+      - name: Verify source pin and executed compiler evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TOOLCHAIN_RUN_ID: ${{ inputs.toolchain_run_id }}
+        run: python3 tests/python-source/acquire.py --run-id "$TOOLCHAIN_RUN_ID" --out evidence/python-source/acquisition.json
+      - name: Download verified compiler bundles
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0
+        with:
+          repository: wisp-sh/wisp-buildtools
+          run-id: ${{ inputs.toolchain_run_id }}
+          github-token: ${{ github.token }}
+          name: python-linux-x86_64
+          path: .downloads/python-source
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: '24.20.0'
+      - name: Prepare hosted disk and bounded build scratch
+        run: |
+          if [ "$RUNNER_ENVIRONMENT" = github-hosted ]; then
+            sudo rm -rf -- /usr/share/dotnet /usr/local/lib/android /usr/local/.ghcup /opt/hostedtoolcache/CodeQL
+          fi
+          free -h
+          df -h . "$RUNNER_TEMP"
+          df -i .
+          findmnt -T "$RUNNER_TEMP"
+          mkdir -p .tools/python-source/scratch
+          echo "TMPDIR=$PWD/.tools/python-source/scratch" >> "$GITHUB_ENV"
+      - name: Install verified upstream binding generator
+        run: |
+          python3 tools/upstream-bindings/setup.py --out .tools/upstream-bindings
+          echo "WISP_WIT_BINDGEN=$PWD/.tools/upstream-bindings/wit-bindgen" >> "$GITHUB_ENV"
+      - name: Build CLI and check Python integration paths
+        run: |
+          rustup toolchain install 1.98.1 --profile minimal
+          rustup toolchain install 1.99.0 --profile minimal
+          cargo build --locked -p wisp -p wisp-worker -j 1 > evidence/python-source/cli-build.log 2>&1
+          cargo test --locked -p wisp --bin wisp build:: -j 1 -- --test-threads=1 > evidence/python-source/unit-tests.log 2>&1
+          echo "WISP_WORKER=$PWD/target/debug/wisp-worker" >> "$GITHUB_ENV"
+      - name: Prepare execution hosts and pinned library tooling
+        run: |
+          target/debug/wisp toolchain setup-hosts --prefix "$PWD/.tools/python-source/prefix" --cache "$PWD/.tools/python-source/host-cache" --host all --jobs 1 > evidence/python-source/hosts.log 2>&1
+          echo "WISP_WASMTIME=$PWD/.tools/python-source/prefix/hosts/wasmtime-50.0.0/wasmtime" >> "$GITHUB_ENV"
+          mkdir -p .tools/python-source/js
+          cp crates/wisp/assets/setup-tooling/package*.json .tools/python-source/js/
+          npm ci --prefix .tools/python-source/js --ignore-scripts --no-audit --no-fund > evidence/python-source/npm-setup.log 2>&1
+          echo "WISP_NODE=$(command -v node)" >> "$GITHUB_ENV"
+          echo "WISP_JCO=$PWD/.tools/python-source/js/node_modules/.bin/jco" >> "$GITHUB_ENV"
+          mkdir -p .tools/python-source/cargo-seed/src
+          cp crates/wisp/assets/setup-cargo-seed/Cargo.toml.txt .tools/python-source/cargo-seed/Cargo.toml
+          cp crates/wisp/assets/setup-cargo-seed/Cargo.lock.txt .tools/python-source/cargo-seed/Cargo.lock
+          cp crates/wisp/assets/setup-cargo-seed/lib.rs.txt .tools/python-source/cargo-seed/src/lib.rs
+          printf '\n[workspace]\n' >> .tools/python-source/cargo-seed/Cargo.toml
+          cargo fetch --locked --manifest-path .tools/python-source/cargo-seed/Cargo.toml > evidence/python-source/cargo-seed.log 2>&1
+      - name: Install compiler and execute rich consumers with networking disabled
+        env:
+          TESTED_WISP_SHA: ${{ github.sha }}
+        run: |
+          sudo unshare --net --setuid "$(id -u)" --setgid "$(id -g)" \
+            env PATH="$PATH" HOME="$HOME" TMPDIR="$TMPDIR" PYTHONDONTWRITEBYTECODE=1 \
+            RUSTUP_TOOLCHAIN=1.98.1 CARGO_BUILD_JOBS=1 CARGO_INCREMENTAL=0 \
+            WISP_WORKER="$WISP_WORKER" WISP_WASMTIME="$WISP_WASMTIME" WISP_NODE="$WISP_NODE" WISP_JCO="$WISP_JCO" \
+            python3 tests/python-source/run.py --cli target/debug/wisp \
+            --wisp-commit "$TESTED_WISP_SHA" \
+            --prefix .tools/python-source/prefix --bundles .downloads/python-source \
+            --out out/python-source > evidence/python-source/acceptance.log 2>&1
+      - name: Verify complete evidence for the tested commit and compiler pin
+        env:
+          TESTED_WISP_SHA: ${{ github.sha }}
+        run: python3 tests/python-source/verify.py --wisp-commit "$TESTED_WISP_SHA" --out out/python-source --acquisition evidence/python-source/acquisition.json
+      - name: Save bounded evidence on success or failure
+        if: always()
+        run: |
+          mkdir -p evidence/python-source
+          python3 - <<'PY'
+          from pathlib import Path
+          for path in Path('evidence/python-source').glob('*.log'):
+              with path.open('rb') as stream:
+                  stream.seek(max(0, path.stat().st_size - 1024 * 1024))
+                  tail = stream.read()
+              path.write_bytes(tail)
+          PY
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+        if: always()
+        with:
+          name: python-source-evidence-${{ github.run_id }}
+          path: |
+            evidence/python-source/
+            out/python-source/result.json
+            out/python-source/doctor-*.json
+            out/python-source/receipts/*.json
+            out/python-source/logs/*.log
+          if-no-files-found: error
+          retention-days: 14
+  acceptance-result:
+    if: always() && github.event_name == 'workflow_dispatch'
+    needs: [acceptance-start, evidence-contract, compiler]
+    runs-on: ubuntu-24.04
+    permissions:
+      statuses: write
+    steps:
+      - name: Publish the executed acceptance result on the exact Wisp commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          START_RESULT: ${{ needs.acceptance-start.result }}
+          EVIDENCE_RESULT: ${{ needs.evidence-contract.result }}
+          COMPILER_RESULT: ${{ needs.compiler.result }}
+        run: |
+          state=failure
+          description='Compiler installation or full consumer acceptance did not pass'
+          if [ "$START_RESULT" = success ] && [ "$EVIDENCE_RESULT" = success ] && [ "$COMPILER_RESULT" = success ]; then
+            state=success
+            description='Pinned compiler, installed consumers, invalidation and inventory checks passed'
+          fi
+          gh api --method POST "repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
+            -f state="$state" -f context='Python executed acceptance' \
+            -f description="$description" \
+            -f target_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          test "$state" = success
