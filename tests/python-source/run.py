@@ -52,6 +52,8 @@ def package_info() -> str:
 def resource() -> str:
     from importlib.resources import files
     return files(__package__).joinpath('data.txt').read_text()
+def read_resource() -> str:
+    return resource()
 def explode() -> int:
     raise RuntimeError('ordinary exception')
 '''
@@ -197,7 +199,7 @@ def main():
         require(manifests == {str(p): digest(p) for p in cache.rglob('manifest.json')}, 'body edit changed template')
         write(source.parent / 'data.txt', 'changed resource')
         changed, changed_receipt = build('data-edit')
-        call(changed, '"resource"()', '"changed resource"')
+        call(changed, 'read-resource()', '"changed resource"')
         require(changed_receipt['units']['application']['inputs']['app/data.txt'] != receipt['units']['application']['inputs']['app/data.txt'], 'data edit was not hashed')
         check('deterministic rebuild; body/resource changes invalidate bytes and preserve template')
         source.write_text(source.read_text() + '\ndef ready() -> bool: return True\n')
