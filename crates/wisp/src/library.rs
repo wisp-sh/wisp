@@ -402,6 +402,31 @@ mod contract_comparison_tests {
     use super::*;
 
     #[test]
+    fn named_interface_distinguishes_no_result_from_empty_tuple_result() {
+        let mut resolve = Resolve::default();
+        let package = resolve
+            .push_str(
+                "unit.wit",
+                r#"
+            package test:unit;
+            interface api {
+                collect: func();
+                empty: func() -> tuple<>;
+                text: func() -> string;
+            }
+            world root { export api; }
+        "#,
+            )
+            .unwrap();
+        let world = resolve.select_world(&[package], Some("root")).unwrap();
+        let source = rust_source(&resolve, world).unwrap();
+        assert!(source.contains("func_collect().func().typed::<(), ()>"));
+        assert!(source.contains("func_empty().func().typed::<(), ((),)>"));
+        assert!(source.contains("func_text().func().typed::<(), (String,)>"));
+        syn::parse_file(&source).unwrap();
+    }
+
+    #[test]
     fn reconstructs_worker_bindings_from_release_platforms() {
         let mut resolve = Resolve::default();
         let package = resolve
@@ -908,7 +933,12 @@ impl Client {{
                 let native_method = function.name.to_snake_case();
                 source.push_str(&format!("#[cfg(not(target_arch = \"wasm32\"))]\n{{ let mut state = self.library.access().map_err(CallError::Runtime)?;\nif state.poisoned {{ return Err(CallError::Runtime(\"Component instance is poisoned\".into())); }}\nlet result = {{ let super::State {{ store, bindings, .. }} = &mut *state; bindings.call_{native_method}(store{comma}{native_args}) }};\nlet value = result.map_err(|e| {{ state.poisoned = true; CallError::Runtime(format!(\"{{e:#}}\")) }})?;\n{} }}\n}}\n", if guest_error.is_some(){"value.map_err(CallError::Guest)"}else{"Ok(value)"}, comma=if args.is_empty(){""}else{", "}));
             } else {
-                source.push_str(&format!("#[cfg(not(target_arch = \"wasm32\"))]\n{{ let mut state = self.library.access().map_err(CallError::Runtime)?;\nif state.poisoned {{ return Err(CallError::Runtime(\"Component instance is poisoned\".into())); }}\nlet result = {{ let super::State {{ store, bindings, .. }} = &mut *state; bindings.{accessor}().func_{}().func().typed::<({param_types}), ({return_type},)>(&*store).and_then(|callee| callee.call(store, ({}))).map(|(value,)| value) }};\nlet value = result.map_err(|e| {{ state.poisoned = true; CallError::Runtime(format!(\"{{e:#}}\")) }})?;\n{} }}\n}}\n", function.name.to_snake_case(), if args.is_empty(){String::new()}else{format!("{args},")}, if guest_error.is_some(){"value.map_err(CallError::Guest)"}else{"Ok(value)"}));
+                let (native_results, unpack) = if function.result.is_some() {
+                    (format!("({return_type},)"), ".map(|(value,)| value)")
+                } else {
+                    ("()".to_owned(), "")
+                };
+                source.push_str(&format!("#[cfg(not(target_arch = \"wasm32\"))]\n{{ let mut state = self.library.access().map_err(CallError::Runtime)?;\nif state.poisoned {{ return Err(CallError::Runtime(\"Component instance is poisoned\".into())); }}\nlet result = {{ let super::State {{ store, bindings, .. }} = &mut *state; bindings.{accessor}().func_{}().func().typed::<({param_types}), {native_results}>(&*store).and_then(|callee| callee.call(store, ({}))){unpack} }};\nlet value = result.map_err(|e| {{ state.poisoned = true; CallError::Runtime(format!(\"{{e:#}}\")) }})?;\n{} }}\n}}\n", function.name.to_snake_case(), if args.is_empty(){String::new()}else{format!("{args},")}, if guest_error.is_some(){"value.map_err(CallError::Guest)"}else{"Ok(value)"}));
             }
         }
         source.push_str("}\n");
