@@ -13,7 +13,7 @@ pub(super) fn python_contract(
     let source = input(root, &unit.sources[0])?;
     // Preserve the explicit legacy entry selection and adjacent authored WIT.
     if unit.entry.is_some() || source.with_extension("wit").is_file() {
-        let (body, hashes) = contract(root, unit, Compiler::Python, resolve)?;
+        let (body, hashes) = contract(root, unit, Compiler::Python, resolve, tools)?;
         return Ok((body, hashes, false));
     }
     let toolchain = crate::build::adapters::Toolchain::load(root, tools, Compiler::Python)?;
