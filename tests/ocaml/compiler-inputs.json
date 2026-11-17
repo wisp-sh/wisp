@@ -1,0 +1,54 @@
+{
+  "bundles": [
+    {
+      "platform": "linux-x86_64",
+      "requires": [
+        "wisp:llvm"
+      ],
+      "sha256": "e8d92d2dd8a5ae968bd8db214cfbebd75ab29d43ef680954e28b54d41bcecf11",
+      "size": 9720952,
+      "tool": "clang",
+      "upstreamVersion": "llvm-24-d297af3",
+      "url": "https://github.com/wisp-sh/wisp-buildtools/releases/download/toolchains-2026.10.26/clang.wisp.zip",
+      "version": "0.1.0"
+    },
+    {
+      "platform": "linux-x86_64",
+      "requires": [],
+      "sha256": "9af448692d4bb644b41a4dd7f189919977188e14ea2192cf072d8ddc19d0b6a7",
+      "size": 102882188,
+      "tool": "llvm",
+      "upstreamVersion": "llvm-24-d297af3-wasip3-shared",
+      "url": "https://github.com/wisp-sh/wisp-buildtools/releases/download/toolchains-2026.10.26/llvm.wisp.zip",
+      "version": "0.1.0"
+    },
+    {
+      "platform": "linux-x86_64",
+      "requires": [
+        "wisp:clang",
+        "wisp:llvm"
+      ],
+      "sha256": "69eb91cc3c538075e2c3a781bbb510ab01c3714626893bff1dc57e8ff37f86ce",
+      "size": 5947410,
+      "tool": "ocaml",
+      "upstreamVersion": "4.14.2",
+      "url": "https://github.com/wisp-sh/wisp-buildtools/releases/download/toolchains-2026.10.26/ocaml.wisp.zip",
+      "version": "0.1.0"
+    },
+    {
+      "platform": "linux-x86_64",
+      "requires": [],
+      "sha256": "ebe4ffaf310684ab78cfa067ad0e8b8697c937726b26bc271ae9c893840baae2",
+      "size": 14432959,
+      "tool": "wasm-tools",
+      "upstreamVersion": "1.262.0",
+      "url": "https://github.com/wisp-sh/wisp-buildtools/releases/download/toolchains-2026.10.26/wasm-tools.wisp.zip",
+      "version": "0.1.0"
+    }
+  ],
+  "commit": "cedd6ca37eef883d64f833f891293ff41ced4e30",
+  "platform": "linux-x86_64",
+  "repository": "wisp-sh/wisp-buildtools",
+  "schema": 2,
+  "tag": "toolchains-2026.10.26"
+}

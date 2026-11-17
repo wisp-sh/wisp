@@ -8,7 +8,7 @@ include = ["src/**", "wit/**", "component.wasm", "wisp-contract.json", "README.m
 [dependencies]
 # Fetch every generated library dependency, including target-specific and async
 # dependencies: cargo package resolves them even with --no-verify.
-wasmtime = { version = "=50.0.0", default-features = false, features = ["component-model", "component-model-async", "cranelift", "winch", "runtime", "std"] }
+wasmtime = { version = "=50.0.0", default-features = false, features = ["component-model", "component-model-async", "cranelift", "winch", "runtime", "std", "gc", "gc-drc"] }
 wasmtime-wasi = { version = "=50.0.0", default-features = false, features = ["p2"] }
 wasmtime-wasi-http = { version = "=50.0.0", default-features = false, features = ["p2", "default-send-request"] }
 wit-bindgen = { version = "=0.61.1", features = ["async", "async-spawn"] }

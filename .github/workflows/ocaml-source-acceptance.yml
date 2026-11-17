@@ -1,0 +1,173 @@
+name: OCaml installed source acceptance
+on:
+  push:
+    paths:
+      - '.github/workflows/ocaml-source-acceptance.yml'
+      - 'tests/ocaml/**'
+      - 'examples/build-ocaml/**'
+  workflow_dispatch:
+    inputs:
+      buildtools_ref:
+        description: Exact wisp-buildtools candidate commit
+        type: string
+        required: true
+permissions:
+  contents: read
+concurrency:
+  group: ocaml-source-${{ github.event_name }}-${{ github.ref }}
+  # Preserve compiler diagnostics from an active dispatch when main is merged.
+  # The next exact-commit acceptance waits for it instead of cancelling it.
+  cancel-in-progress: false
+jobs:
+  contracts:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Check acceptance scripts and immutable bundle descriptors
+        run: |
+          python3 - <<'PYTHON'
+          import ast, json, re
+          from pathlib import Path
+          for p in Path('tests/ocaml').glob('*.py'): ast.parse(p.read_text(), filename=str(p))
+          manifest=json.loads(Path('tests/ocaml/compiler-inputs.json').read_text())
+          assert {b['tool'] for b in manifest['bundles']} == {'ocaml','clang','llvm','wasm-tools'}
+          for b in manifest['bundles']:
+              assert re.fullmatch('[0-9a-f]{64}', b['sha256']) and b['size'] > 0
+          PYTHON
+          python3 -m unittest discover -s tests/ocaml -p test_status.py
+  acceptance:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    permissions:
+      contents: read
+      statuses: write
+    env:
+      CARGO_BUILD_JOBS: '1'
+      CARGO_INCREMENTAL: '0'
+      # This host JITs the full shared LLVM compiler. Optimize the host's
+      # Cranelift/Wasmtime code as well as the CLI before executing that workload.
+      CARGO_PROFILE_DEV_OPT_LEVEL: '2'
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - name: Report public installed acceptance as pending on the tested commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BUILDTOOLS_REF: ${{ inputs.buildtools_ref }}
+        run: |
+          gh api --silent --method POST "repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
+            -f state=pending -f context='OCaml public installed acceptance' \
+            -f description="Compiler ${BUILDTOOLS_REF:0:12} running; CPDF is a separate gate" \
+            -f target_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Prepare disposable runner capacity
+        run: |
+          sudo rm -rf -- /usr/share/dotnet /usr/local/lib/android /usr/local/.ghcup /opt/hostedtoolcache/CodeQL
+          free -h
+          df -h .
+          df -i .
+          findmnt -T "$RUNNER_TEMP"
+          mkdir -p evidence/ocaml
+          echo "TMPDIR=$RUNNER_TEMP" >> "$GITHUB_ENV"
+      - name: Require an immutable compiler source
+        env:
+          BUILDTOOLS_REF: ${{ inputs.buildtools_ref }}
+        run: '[[ "$BUILDTOOLS_REF" =~ ^[0-9a-f]{40}$ ]]'
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: wisp-sh/wisp-buildtools
+          ref: ${{ inputs.buildtools_ref }}
+          path: .tools/wisp-buildtools
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.13'
+      - name: Install authenticated execution hosts and consumer tools
+        run: |
+          python3 scripts/ci/runtime.py --out "$RUNNER_TEMP/runtime"
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          root = Path(os.environ['RUNNER_TEMP'])/'runtime'
+          catalog = json.loads((root/'wisp-runtime.json').read_text())
+          with open(os.environ['GITHUB_ENV'],'a') as out:
+              for key, value in catalog['env'].items():
+                  if key != 'CARGO_TARGET_DIR': out.write(f'{key}={root/value}\n')
+              out.write('CARGO_TARGET_DIR=' + os.environ['GITHUB_WORKSPACE'] + '/target\n')
+          with open(os.environ['GITHUB_PATH'],'a') as out:
+              for path in ('rust/bin','node/bin','bin','js/node_modules/.bin'): out.write(str(root/path)+'\n')
+          PY
+      - name: Build candidate CLI and worker and run targeted source tests
+        run: |
+          cargo build --locked -p wisp -p wisp-worker -j1
+          cargo test --locked -p wisp --bin wisp build -- --test-threads=1
+          cargo test --locked -p wisp --bin wisp setup_seed_covers_generated_library_dependencies -- --test-threads=1
+          cargo test --locked -p wisp --bin wisp detects_modern_wasm_exceptions -- --test-threads=1
+          cargo test --locked -p wisp --bin wisp named_interface_distinguishes_no_result -- --test-threads=1
+          cargo test --locked -p wisp --bin wisp ocaml_stages_only_the_discovered_inventory -- --test-threads=1
+          cargo test --locked -p wisp --test build -- --test-threads=1
+      - name: Package changed OCaml adapters and install all compiler bundles fresh
+        run: python3 tests/ocaml/setup.py --buildtools .tools/wisp-buildtools --runtime "$RUNNER_TEMP/runtime" --out "$RUNNER_TEMP/ocaml"
+      - name: Execute installed compiler and library consumers without network access
+        run: |
+          source "$RUNNER_TEMP/ocaml/environment.sh"
+          sudo --preserve-env unshare --net --setuid "$(id -u)" --setgid "$(id -g)" \
+            env PATH="$PATH" python3 tests/ocaml/acceptance.py --out "$RUNNER_TEMP/ocaml" --buildtools "$PWD/.tools/wisp-buildtools"
+      - name: Retain bounded acceptance evidence
+        if: always()
+        env:
+          ACCEPTANCE_STATUS: ${{ job.status }}
+          BUILDTOOLS_REF: ${{ inputs.buildtools_ref }}
+        run: |
+          python3 - <<'PY'
+          import json, os, shutil
+          from pathlib import Path
+          source = Path(os.environ['RUNNER_TEMP'])/'ocaml'
+          out = Path('evidence/ocaml'); out.mkdir(parents=True,exist_ok=True)
+          (out/'workflow.json').write_text(json.dumps({k:os.environ.get(k) for k in (
+              'ACCEPTANCE_STATUS','GITHUB_SHA','GITHUB_RUN_ID','GITHUB_RUN_ATTEMPT','BUILDTOOLS_REF')},indent=2)+'\n')
+          for name in ('setup.json','result.json','commands.json'):
+              p=source/name
+              if p.is_file() and p.stat().st_size < 4*1024**2: shutil.copyfile(p,out/name)
+          for p in sorted((source/'logs').glob('*.log'))[:100]:
+              with p.open('rb') as stream:
+                  stream.seek(max(0,p.stat().st_size-65536))
+                  (out/p.name).write_bytes(stream.read(65536))
+          PY
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: ocaml-acceptance-evidence
+          path: evidence/ocaml
+          retention-days: 14
+          if-no-files-found: error
+      - name: Report complete public acceptance on the exact tested commit
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ACCEPTANCE_JOB_STATUS: ${{ job.status }}
+          BUILDTOOLS_REF: ${{ inputs.buildtools_ref }}
+        run: |
+          state=failure
+          if [ "$ACCEPTANCE_JOB_STATUS" = success ] && python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          root=Path(os.environ['RUNNER_TEMP'])/'ocaml'
+          setup=json.loads((root/'setup.json').read_text())
+          result=json.loads((root/'result.json').read_text())
+          assert setup['wispCommit'] == os.environ['GITHUB_SHA']
+          assert setup['buildtoolsCommit'] == os.environ['BUILDTOOLS_REF']
+          assert setup['installer'] == 'wisp' and setup['cleanInstall'] is True
+          assert result['passed'] is True and result['complete'] is True
+          assert result['compilerManifestSha256'] == setup['compilerManifestSha256']
+          PY
+          then state=success; fi
+          gh api --silent --method POST "repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
+            -f state="$state" -f context='OCaml public installed acceptance' \
+            -f description="Compiler ${BUILDTOOLS_REF:0:12}: public acceptance $state; CPDF is separate" \
+            -f target_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          [ "$state" = success ]

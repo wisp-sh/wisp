@@ -423,10 +423,23 @@ pub(super) fn generate(
                     (body, hashes)
                 }
             } else {
-                adapters::contract(root, unit, compiler, resolve)?
+                adapters::contract(root, unit, compiler, resolve, &config.build.tools)?
             };
             unit.world = wire_name(name)?;
-            wit.push_str(&format!("world %{} {{\n{body}\n}}\n", unit.world));
+            if matches!(compiler, Compiler::Ocaml) {
+                complete_sources.insert(name.clone());
+                let interface = if source_units.len() == 1 {
+                    "api".to_owned()
+                } else {
+                    format!("{}-api", wire_name(name)?)
+                };
+                wit.push_str(&format!(
+                    "interface %{interface} {{\n{body}\n}}\nworld %{} {{ export %{interface}; }}\n",
+                    unit.world
+                ));
+            } else {
+                wit.push_str(&format!("world %{} {{\n{body}\n}}\n", unit.world));
+            }
             sources.insert(name.clone(), hashes);
             functions.insert(name.clone(), BTreeMap::new());
             continue;
